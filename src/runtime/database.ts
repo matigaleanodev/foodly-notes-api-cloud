@@ -1,35 +1,28 @@
 import { createConnection, type Connection, Schema } from 'mongoose';
+import {
+  recipeSchema,
+  dailySchema,
+  translationSchema,
+  isDuplicateKey,
+  type StoredRecipe,
+  type DailyRecipe,
+  type TranslationEntry,
+  type Content,
+  type Lang,
+} from '../recipes/models.ts';
 
-interface StoredRecipe {
-  sourceId: number;
-  base: { title: string };
-  meta?: { image?: string | null };
-}
 interface Counter {
   _id: string;
   count: number;
   expiresAt: Date;
 }
-
-// Solo lectura del listado; el esquema completo se traslada junto con detalle/traducción.
-const recipeSchema = new Schema<StoredRecipe>(
-  {
-    sourceId: Number,
-    base: { title: String },
-    meta: { image: String },
-  },
-  { collection: 'recipes' },
-);
 const counterSchema = new Schema<Counter>(
-  {
-    _id: String,
-    count: Number,
-    expiresAt: Date,
-  },
+  { _id: String, count: Number, expiresAt: Date },
   { collection: 'securitycounters' },
 );
 counterSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0, name: 'security_counter_expiry' });
 
+/** Reutiliza la conexión Mongo por instancia; las operaciones reciben cancelación y no crean índices. */
 export function database(uri: () => string | undefined) {
   let opening: Promise<Connection> | undefined;
   const connect = () => {
@@ -60,37 +53,186 @@ export function database(uri: () => string | undefined) {
     });
     return opening;
   };
+  const models = async (signal: AbortSignal) => {
+    signal.throwIfAborted();
+    const connection = await connect();
+    signal.throwIfAborted();
+    return {
+      recipes: connection.model('StoredRecipe', recipeSchema),
+      daily: connection.model('DailyRecipe', dailySchema),
+      translations: connection.model('TranslationEntry', translationSchema),
+      counters: connection.model('SecurityCounter', counterSchema),
+    };
+  };
+  const options = (signal: AbortSignal) => ({ signal, maxTimeMS: 2000 });
   return {
     connect,
+
     async list(limit: number, after: number | undefined, signal: AbortSignal) {
-      const connection = await connect();
-      signal.throwIfAborted();
-      const recipes =
-        connection.models.StoredRecipe ?? connection.model('StoredRecipe', recipeSchema);
+      const { recipes } = await models(signal);
       return recipes
         .find(after === undefined ? {} : { sourceId: { $gt: after } })
         .select('sourceId base.title meta.image -_id')
         .sort({ sourceId: 1 })
         .limit(limit)
-        .setOptions({ signal, maxTimeMS: 2000 })
-        .lean<StoredRecipe[]>()
+        .setOptions(options(signal))
+        .lean<Pick<StoredRecipe, 'sourceId' | 'base' | 'meta'>[]>()
         .exec();
     },
-    async increment(key: string, expiresAt: Date, signal: AbortSignal) {
-      const connection = await connect();
+
+    async recipe(sourceId: number, signal: AbortSignal) {
+      const { recipes } = await models(signal);
+      return recipes.findOne({ sourceId }).setOptions(options(signal)).lean<StoredRecipe>().exec();
+    },
+
+    async insertRecipe(
+      value: Pick<StoredRecipe, 'sourceId' | 'base' | 'meta'>,
+      signal: AbortSignal,
+    ) {
+      const { recipes } = await models(signal);
+      try {
+        return await recipes
+          .findOneAndUpdate(
+            { sourceId: value.sourceId },
+            { $setOnInsert: value },
+            {
+              ...options(signal),
+              upsert: true,
+              returnDocument: 'after',
+              setDefaultsOnInsert: true,
+            },
+          )
+          .lean<StoredRecipe>()
+          .orFail()
+          .exec();
+      } catch (error) {
+        if (!isDuplicateKey(error)) throw error;
+        return recipes
+          .findOne({ sourceId: value.sourceId })
+          .setOptions(options(signal))
+          .lean<StoredRecipe>()
+          .orFail()
+          .exec();
+      }
+    },
+
+    /** Conserva la primera traducción persistida sin sobrescribir la de otra request concurrente. */
+    async saveSpanish(
+      sourceId: number,
+      translated: Content & { translatedAt: Date },
+      signal: AbortSignal,
+    ) {
+      const { recipes } = await models(signal);
+      await recipes
+        .updateOne(
+          { sourceId, 'translations.es': { $exists: false } },
+          { $set: { 'translations.es': translated } },
+          options(signal),
+        )
+        .exec();
+      return recipes
+        .findOne({ sourceId })
+        .setOptions(options(signal))
+        .lean<StoredRecipe>()
+        .orFail()
+        .exec();
+    },
+
+    async daily(date: string, signal: AbortSignal) {
+      const { daily } = await models(signal);
+      return daily.findOne({ date }).setOptions(options(signal)).lean<DailyRecipe>().exec();
+    },
+
+    async insertDaily(value: DailyRecipe, signal: AbortSignal) {
+      const { daily } = await models(signal);
+      try {
+        return await daily
+          .findOneAndUpdate(
+            { date: value.date },
+            { $setOnInsert: value },
+            {
+              ...options(signal),
+              upsert: true,
+              returnDocument: 'after',
+              setDefaultsOnInsert: true,
+            },
+          )
+          .lean<DailyRecipe>()
+          .orFail()
+          .exec();
+      } catch (error) {
+        if (!isDuplicateKey(error)) throw error;
+        return daily
+          .findOne({ date: value.date })
+          .setOptions(options(signal))
+          .lean<DailyRecipe>()
+          .orFail()
+          .exec();
+      }
+    },
+
+    async translations(texts: string[], targetLang: Lang, signal: AbortSignal) {
+      const { translations } = await models(signal);
+      return translations
+        .find({ sourceText: { $in: texts }, targetLang })
+        .setOptions(options(signal))
+        .lean<TranslationEntry[]>()
+        .exec();
+    },
+
+    async insertTranslation(value: TranslationEntry, signal: AbortSignal) {
+      const { translations } = await models(signal);
+      try {
+        await translations
+          .updateOne(
+            { sourceText: value.sourceText, targetLang: value.targetLang },
+            { $setOnInsert: value },
+            { ...options(signal), upsert: true },
+          )
+          .exec();
+      } catch (error) {
+        if (!isDuplicateKey(error)) throw error;
+      }
+    },
+
+    /** Reserva presupuesto de forma atómica; devuelve false si las unidades exceden el saldo. */
+    async reserve(key: string, units: number, limit: number, expiresAt: Date, signal: AbortSignal) {
+      const { counters } = await models(signal);
+      try {
+        await counters
+          .updateOne(
+            { _id: key },
+            { $setOnInsert: { count: 0, expiresAt } },
+            { ...options(signal), upsert: true },
+          )
+          .exec();
+      } catch (error) {
+        if (!isDuplicateKey(error)) throw error;
+      }
       signal.throwIfAborted();
-      const counters =
-        connection.models.SecurityCounter ?? connection.model('SecurityCounter', counterSchema);
+      return Boolean(
+        await counters
+          .findOneAndUpdate(
+            { _id: key, count: { $lte: limit - units } },
+            { $inc: { count: units } },
+            { ...options(signal), returnDocument: 'after' },
+          )
+          .lean<Counter>()
+          .exec(),
+      );
+    },
+
+    async increment(key: string, expiresAt: Date, signal: AbortSignal) {
+      const { counters } = await models(signal);
       const counter = await counters
         .findOneAndUpdate(
           { _id: key },
           { $inc: { count: 1 }, $setOnInsert: { expiresAt } },
           {
+            ...options(signal),
             upsert: true,
             returnDocument: 'after',
             setDefaultsOnInsert: false,
-            signal,
-            maxTimeMS: 2000,
           },
         )
         .lean<Counter>()
@@ -98,6 +240,7 @@ export function database(uri: () => string | undefined) {
       if (!counter) throw new Error('Missing counter.');
       return counter.count;
     },
+
     async close() {
       const connection = await opening;
       opening = undefined;
@@ -105,4 +248,5 @@ export function database(uri: () => string | undefined) {
     },
   };
 }
+
 export type Database = ReturnType<typeof database>;

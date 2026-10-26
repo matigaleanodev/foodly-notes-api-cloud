@@ -16,11 +16,13 @@
     "@middy/core": "7.9.2",
     "ajv": "8.20.0",
     "ipaddr.js": "2.5.0",
-    "mongoose": "9.11.4"
+    "mongoose": "9.11.4",
+    "sanitize-html": "2.18.1"
   },
   "devDependencies": {
     "@types/aws-lambda": "8.10.164",
     "@types/node": "24.19.2",
+    "@types/sanitize-html": "2.16.2",
     "esbuild": "0.28.2",
     "mongodb-memory-server": "11.3.0",
     "serverless": "4.45.0",
