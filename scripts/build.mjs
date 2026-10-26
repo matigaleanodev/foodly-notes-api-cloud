@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 await mkdir('dist', { recursive: true });
 for (const name of ['health', 'recipes']) {
   const result = await build({
-    entryPoints: [`src/${name}.ts`],
+    entryPoints: [`src/${name}/handler.ts`],
     outfile: `dist/${name}.mjs`,
     bundle: true,
     platform: 'node',
@@ -41,14 +41,57 @@ for (const name of ['health', 'recipes']) {
 
 const { event, context } = await import('../test/helpers.ts');
 const { createHealthHandler } = await import('../dist/health.mjs');
-const { createRecipesHandler } = await import('../dist/recipes.mjs');
+const bundled = await import('../dist/recipes.mjs');
+const { routes, recipeRoutes } = await import('../src/http/routes.ts');
 const { default: assert } = await import('node:assert/strict');
 assert.equal((await createHealthHandler()(event('/api/health'), context)).statusCode, 200);
 const localStore = {
   increment: async () => 1,
   list: async () => [{ sourceId: 7, base: { title: 'Local recipe' } }],
+  recipe: async (sourceId) => ({
+    sourceId,
+    source: 'spoonacular',
+    originalLang: 'en',
+    base: {
+      title: 'Local recipe',
+      summary: '<b>Safe</b><script>bad()</script>',
+      instructions: [],
+      ingredients: [],
+    },
+    meta: {},
+    translations: {},
+  }),
+  daily: async () => ({ recipes: [{ sourceId: 7, title: 'Local recipe' }] }),
 };
-const response = await createRecipesHandler(localStore)(event(), context);
-assert.equal(response.statusCode, 200);
-assert.deepEqual(JSON.parse(response.body), [{ sourceId: 7, title: 'Local recipe' }]);
-console.info('Smoke de ambos bundles aprobado sin conexiones externas.');
+const localProviders = {
+  search: async () => [{ id: 7, title: 'Local recipe', image: null }],
+  similar: async () => [{ sourceId: 7, title: 'Local recipe' }],
+  detail: async () => {
+    throw new Error('Unexpected cache miss');
+  },
+  daily: async () => {
+    throw new Error('Unexpected cache miss');
+  },
+  translate: async () => {
+    throw new Error('Unexpected translation');
+  },
+};
+const samples = {
+  list: event(),
+  daily: event('/api/recipes/daily'),
+  search: event('/api/recipes/search', 'q=rice'),
+  detail: event('/api/recipes/7'),
+  similar: event('/api/recipes/7/similar'),
+  ingredients: event('/api/recipes/ingredients', '', '127.0.0.1', 'POST'),
+};
+samples.ingredients.headers['content-type'] = 'application/json';
+samples.ingredients.body = JSON.stringify({ sourceIds: [7] });
+for (const route of recipeRoutes) {
+  assert.equal(typeof bundled[route.handler], 'function');
+  const fixed = bundled.createRecipeHandler(route, localStore, undefined, localProviders);
+  const response = await fixed(samples[route.handler], context);
+  assert.equal(response.statusCode, route.method === 'POST' ? 201 : 200);
+  if (route === routes.detail) assert.equal(JSON.parse(response.body).summary, '<b>Safe</b>');
+}
+assert.equal(bundled.handler, undefined);
+console.info('Smoke de siete integraciones y exports fijos aprobado sin conexiones externas.');

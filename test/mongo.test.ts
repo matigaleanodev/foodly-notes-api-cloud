@@ -1,8 +1,8 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { createHash } from 'node:crypto';
-import { database, type Database } from '../src/database.ts';
-import { createRecipesHandler } from '../src/recipes.ts';
+import { database, type Database } from '../src/runtime/database.ts';
+import { createRecipesHandler } from './gateway.ts';
 import { context, env, event } from './helpers.ts';
 
 describe('Listado y cuotas con Mongo efímero aislado', () => {

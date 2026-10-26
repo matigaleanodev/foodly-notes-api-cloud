@@ -6,11 +6,13 @@ import type {
 } from 'aws-lambda';
 import { randomUUID } from 'node:crypto';
 import { isIP } from 'node:net';
-import type { Configuration } from './config.ts';
-import type { Route } from './routes.ts';
+import type { Configuration } from '../runtime/config.ts';
+import { methodsFor, type Route } from './routes.ts';
 
 export type HttpEvent = APIGatewayProxyEventV2;
+
 export type HttpResult = APIGatewayProxyStructuredResultV2;
+
 export type HttpHandler = (event: HttpEvent, context: Context) => Promise<HttpResult>;
 
 export class HttpError extends Error {
@@ -36,6 +38,7 @@ export function json(
   };
 }
 
+/** Aplica el contrato HTTP común; los logs usan rutas declaradas y omiten payloads y consultas. */
 export function http(route: Route, config: Configuration, handler: HttpHandler) {
   type Internal = { foodlyHttp: { requestId: string; started: number } };
   type Request = middy.Request<HttpEvent, HttpResult, Error, Context, Internal>;
@@ -60,17 +63,6 @@ export function http(route: Route, config: Configuration, handler: HttpHandler) 
       vary: 'Origin',
     };
     if (config.production) headers['strict-transport-security'] = 'max-age=31536000';
-    const origin = Object.entries(request.event.headers ?? {}).find(
-      ([key]) => key.toLowerCase() === 'origin',
-    )?.[1];
-    if (origin && config.origins.includes(origin)) {
-      headers['access-control-allow-origin'] = origin;
-      headers['access-control-allow-methods'] = 'GET,POST,OPTIONS';
-      headers['access-control-allow-headers'] = 'Content-Type,Accept';
-      headers['access-control-expose-headers'] =
-        'Retry-After,X-RateLimit-Limit,X-RateLimit-Remaining,X-RateLimit-Reset';
-      headers['access-control-max-age'] = '600';
-    }
     request.response = {
       ...request.response,
       headers: { ...headers, ...request.response?.headers },
@@ -100,11 +92,8 @@ export function http(route: Route, config: Configuration, handler: HttpHandler) 
         ) {
           throw new HttpError(414, 'Request URL too long.');
         }
-        if (event.requestContext.http.method === 'OPTIONS') return;
-        if (
-          event.rawPath.replace(/\/$/, '') !== route.path ||
-          !['GET', 'HEAD'].includes(event.requestContext.http.method)
-        ) {
+        // La ruta se resolvió en Gateway; se valida la integración sin volver a enrutar por URL.
+        if (!methodsFor(route).some((method) => event.routeKey === `${method} ${route.path}`)) {
           throw new HttpError(
             404,
             `Cannot ${event.requestContext.http.method} ${event.rawPath}`,
@@ -130,9 +119,5 @@ export function http(route: Route, config: Configuration, handler: HttpHandler) 
         finish(request);
       },
     })
-    .handler((event, context) =>
-      event.requestContext.http.method === 'OPTIONS'
-        ? Promise.resolve(json(204, undefined))
-        : handler(event, context),
-    );
+    .handler(handler);
 }
