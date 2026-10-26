@@ -6,7 +6,7 @@ import type {
 } from 'aws-lambda';
 import { randomUUID } from 'node:crypto';
 import { isIP } from 'node:net';
-import type { Configuration } from './config.ts';
+import type { Configuration } from '../runtime/config.ts';
 import type { Route } from './routes.ts';
 
 export type HttpEvent = APIGatewayProxyEventV2;

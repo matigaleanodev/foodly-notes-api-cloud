@@ -1,9 +1,9 @@
 import { Ajv } from 'ajv';
-import { configuration } from './config.ts';
-import { database, type Database } from './database.ts';
-import { http, HttpError, json, type HttpEvent } from './http.ts';
-import { routes } from './routes.ts';
-import { quota } from './security.ts';
+import { configuration } from '../runtime/config.ts';
+import { database, type Database } from '../runtime/database.ts';
+import { http, HttpError, json, type HttpEvent } from '../http/middleware.ts';
+import { routes } from '../http/routes.ts';
+import { quota } from '../http/quotas.ts';
 
 interface StoredQuery {
   limit: number;

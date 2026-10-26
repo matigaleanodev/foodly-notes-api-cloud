@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 await mkdir('dist', { recursive: true });
 for (const name of ['health', 'recipes']) {
   const result = await build({
-    entryPoints: [`src/${name}.ts`],
+    entryPoints: [`src/${name}/handler.ts`],
     outfile: `dist/${name}.mjs`,
     bundle: true,
     platform: 'node',

@@ -1,4 +1,4 @@
-import { eventsFor, routes } from './src/routes.ts';
+import { eventsFor, routes } from './src/http/routes.ts';
 
 // Configuración local sintética; entrega OIDC/secretos y acceso de prueba se cierran en etapa 4.
 export default {

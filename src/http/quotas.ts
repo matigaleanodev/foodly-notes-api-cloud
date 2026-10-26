@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 import ipaddr from 'ipaddr.js';
-import type { Database } from './database.ts';
-import type { Configuration } from './config.ts';
-import { HttpError } from './http.ts';
+import type { Database } from '../runtime/database.ts';
+import type { Configuration } from '../runtime/config.ts';
+import { HttpError } from './middleware.ts';
 
 export function tracker(ip: string) {
   const address = ipaddr.process(ip);

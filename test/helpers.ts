@@ -1,5 +1,5 @@
 import type { Context } from 'aws-lambda';
-import type { HttpEvent } from '../src/http.ts';
+import type { HttpEvent } from '../src/http/middleware.ts';
 
 export const env = { CORS_ORIGIN: 'https://foodlynotes.app,capacitor://localhost' };
 export const context: Context = {

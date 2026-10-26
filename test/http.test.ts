@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createHealthHandler } from '../src/health.ts';
-import { createRecipesHandler, storedQuery } from '../src/recipes.ts';
-import { configuration } from '../src/config.ts';
-import { tracker } from '../src/security.ts';
-import { database } from '../src/database.ts';
+import { createHealthHandler } from '../src/health/handler.ts';
+import { createRecipesHandler, storedQuery } from '../src/recipes/handler.ts';
+import { configuration } from '../src/runtime/config.ts';
+import { tracker } from '../src/http/quotas.ts';
+import { database } from '../src/runtime/database.ts';
 import serverless from '../serverless.ts';
-import { routes } from '../src/routes.ts';
+import { routes } from '../src/http/routes.ts';
 import { context, env, event } from './helpers.ts';
 
 describe('Contratos HTTP locales', () => {
