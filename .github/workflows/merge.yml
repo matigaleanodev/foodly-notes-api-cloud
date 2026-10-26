@@ -1,0 +1,86 @@
+name: Merge approved pull request
+
+on:
+  workflow_dispatch:
+    inputs:
+      pull_request:
+        description: Número del PR existente hacia main o dev
+        type: string
+        required: true
+      reviewed_head_sha:
+        description: SHA completo del head revisado
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: read
+  checks: read
+
+concurrency:
+  group: foodly-notes-api-cloud-merge
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    if: github.repository == 'matigaleanodev/foodly-notes-api-cloud' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') && github.actor == 'matigaleanodev' && github.triggering_actor == 'matigaleanodev' && vars.MERGE_WORKFLOW_ENABLED == 'true'
+    environment: merge
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      PR_NUMBER: ${{ inputs.pull_request }}
+      REVIEWED_HEAD_SHA: ${{ inputs.reviewed_head_sha }}
+      GH_REPO: matigaleanodev/foodly-notes-api-cloud
+      GH_HOST: github.com
+    steps:
+      - name: Validar PR y CI con token de lectura
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
+          [[ "$REVIEWED_HEAD_SHA" =~ ^[a-f0-9]{40}$ ]]
+          gh api "repos/$GH_REPO/pulls/$PR_NUMBER" > "$RUNNER_TEMP/reviewed-pr.json"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          pr = json.loads((Path(os.environ['RUNNER_TEMP']) / 'reviewed-pr.json').read_text())
+          assert pr['state'] == 'open' and not pr['draft']
+          assert pr['head']['sha'] == os.environ['REVIEWED_HEAD_SHA']
+          assert pr['head']['repo']['full_name'] == pr['base']['repo']['full_name'] == os.environ['GH_REPO']
+          assert pr['base']['ref'] in ('main', 'dev')
+          head = pr['head']['ref']
+          assert head.startswith(('feat/', 'fix/', 'release/')) or head in ('main', 'dev')
+          assert head != pr['base']['ref']
+          PY
+          gh pr checks "$PR_NUMBER" --repo "$GH_REPO" --required
+      - name: Integrar el SHA revisado con identidad personal
+        env:
+          GH_TOKEN: ${{ secrets.MERGE_USER_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "$GH_TOKEN" ]] || { echo 'Falta MERGE_USER_TOKEN del environment merge.'; exit 1; }
+          gh api user > "$RUNNER_TEMP/merge-user.json"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          user = json.loads((Path(os.environ['RUNNER_TEMP']) / 'merge-user.json').read_text())
+          assert (user['login'], user['id'], user['type']) == ('matigaleanodev', 99203645, 'User')
+          PY
+          gh api --method PUT "repos/$GH_REPO/pulls/$PR_NUMBER/merge"             -f merge_method=merge -f sha="$REVIEWED_HEAD_SHA" > "$RUNNER_TEMP/merge-result.json"
+          gh api "repos/$GH_REPO/pulls/$PR_NUMBER" > "$RUNNER_TEMP/merged-pr.json"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          directory = Path(os.environ['RUNNER_TEMP'])
+          result = json.loads((directory / 'merge-result.json').read_text())
+          pr = json.loads((directory / 'merged-pr.json').read_text())
+          assert result.get('merged') is True, result.get('message', 'Merge no confirmado')
+          assert pr['merged'] and pr['merge_commit_sha'] == result['sha']
+          assert pr['head']['sha'] == os.environ['REVIEWED_HEAD_SHA']
+          user = pr['merged_by']
+          assert (user['login'], user['id'], user['type']) == ('matigaleanodev', 99203645, 'User')
+          print(f"Merge confirmado: {pr['html_url']} por {user['login']}")
+          PY
