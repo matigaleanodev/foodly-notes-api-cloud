@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createHealthHandler } from '../src/health/handler.ts';
-import { createRecipesHandler, storedQuery } from '../src/recipes/handler.ts';
+import { createRecipeHandler, storedQuery } from '../src/recipes/handler.ts';
+import { createRecipesHandler } from './gateway.ts';
 import { configuration } from '../src/runtime/config.ts';
 import { tracker } from '../src/http/quotas.ts';
 import { database } from '../src/runtime/database.ts';
 import serverless from '../serverless.ts';
-import { routes } from '../src/http/routes.ts';
+import { routes, recipeRoutes, eventsFor } from '../src/http/routes.ts';
 import { context, env, event } from './helpers.ts';
 
 describe('Contratos HTTP locales', () => {
@@ -28,21 +29,24 @@ describe('Contratos HTTP locales', () => {
       body: '',
     });
   });
-  it('preflight permite solo el origen configurado, incluyendo Capacitor', async () => {
-    const handler = createHealthHandler(env);
-    const request = event('/api/recipes', '', '127.0.0.1', 'OPTIONS');
-    request.headers.origin = 'capacitor://localhost';
-    const response = await handler(request, context);
-    expect(response).toMatchObject({
-      statusCode: 204,
-      headers: { 'access-control-allow-origin': 'capacitor://localhost' },
+  it('configura CORS y preflight en Gateway sin integración OPTIONS ni Lambda', () => {
+    expect(serverless.provider.httpApi.cors).toEqual({
+      allowedOrigins: ['http://localhost:8100', 'capacitor://localhost'],
+      allowedMethods: ['GET', 'HEAD', 'POST', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Accept'],
+      exposedResponseHeaders: [
+        'Retry-After',
+        'X-RateLimit-Limit',
+        'X-RateLimit-Remaining',
+        'X-RateLimit-Reset',
+      ],
+      maxAge: 600,
+      allowCredentials: false,
     });
-    request.headers.origin = 'https://otro.example';
-    expect((await handler(request, context)).headers).not.toHaveProperty(
-      'access-control-allow-origin',
-    );
+    const events = Object.values(serverless.functions).flatMap((fn) => fn.events);
+    expect(events.some(({ httpApi }) => String(httpApi.method) === 'OPTIONS')).toBe(false);
   });
-  it('errores preservan JSON, CORS, no-store y headers de seguridad', async () => {
+  it('errores de handler preservan JSON, no-store y headers de seguridad', async () => {
     const response = await createHealthHandler({ ...env, NODE_ENV: 'production' })(
       event('/api/other'),
       context,
@@ -50,7 +54,6 @@ describe('Contratos HTTP locales', () => {
     expect(response.statusCode).toBe(404);
     expect(JSON.parse(response.body!)).toMatchObject({ statusCode: 404, error: 'Not Found' });
     expect(response.headers).toMatchObject({
-      'access-control-allow-origin': 'https://foodlynotes.app',
       'strict-transport-security': 'max-age=31536000',
       'x-content-type-options': 'nosniff',
     });
@@ -75,7 +78,7 @@ describe('Contratos HTTP locales', () => {
     const response = await createRecipesHandler(db, env)(event(), context);
     expect(response).toMatchObject({
       statusCode: 503,
-      headers: { 'retry-after': '5', 'access-control-allow-origin': 'https://foodlynotes.app' },
+      headers: { 'retry-after': '5' },
     });
     expect(response.body).not.toMatch(/MONGO_URI|mongoose/);
   });
@@ -119,14 +122,26 @@ describe('Contratos HTTP locales', () => {
     expect(() => configuration({ ...env, RATE_LIMIT_GLOBAL: '-1' })).toThrow();
     expect(configuration({ ...env, RATE_LIMIT_GLOBAL: '10' }).globalLimit).toBe(10);
   });
-  it('Gateway y handlers usan los mismos métodos/rutas sin rutas de proveedores anticipadas', () => {
-    expect(serverless.functions.health.events.slice(0, 2)).toEqual(
-      ['GET', 'HEAD'].map((method) => ({ httpApi: { method, path: routes.health.path } })),
-    );
-    expect(serverless.functions.recipes.events).toEqual(
-      ['GET', 'HEAD'].map((method) => ({ httpApi: { method, path: routes.recipes.path } })),
-    );
+  it('cada endpoint integra una función con export fijo y sin catch-all ni métodos ANY', () => {
+    expect(serverless.functions.health.events).toEqual(eventsFor(routes.health));
+    for (const route of recipeRoutes) {
+      const fn = serverless.functions[route.handler];
+      expect(fn.events).toEqual(eventsFor(route));
+      expect(fn.handler).toBe(`recipes.${route.handler}`);
+    }
+    expect(Object.keys(serverless.functions)).toHaveLength(7);
+    const events = Object.values(serverless.functions).flatMap((fn) => fn.events);
+    expect(events).toHaveLength(13);
+    expect(JSON.stringify(events)).not.toMatch(/proxy|default|ANY/);
     expect(serverless.functions.health).not.toHaveProperty('environment');
     expect(serverless.provider.runtime).toBe('nodejs24.x');
+  });
+  it('un handler fijo rechaza eventos de otra integración sin enrutar por la URL', async () => {
+    const fixed = createRecipeHandler(
+      routes.detail,
+      database(() => undefined),
+      env,
+    );
+    expect((await fixed(event('/api/recipes/daily'), context)).statusCode).toBe(404);
   });
 });
