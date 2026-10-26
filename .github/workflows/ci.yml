@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  repository:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate repository
+        shell: bash
+        run: |
+          git diff-tree --check --root HEAD
+          python3 - <<'PY'
+          import subprocess
+          from pathlib import PurePosixPath
+
+          tracked = subprocess.check_output(['git', 'ls-files', '-z']).decode().split('\0')
+          forbidden = {'agents.md', 'roadmap.md', 'context.md'}
+          private_dirs = {'.agents', '.codex', '.aws', '.tmp', 'mentor', 'node_modules'}
+          for name in filter(None, tracked):
+              path = PurePosixPath(name)
+              assert path.name.lower() not in forbidden, f'Archivo local versionado: {name}'
+              assert not private_dirs.intersection(path.parts), f'Directorio local versionado: {name}'
+              assert not (path.name.startswith('.env') and path.name != '.env.example'), f'Configuración privada versionada: {name}'
+          assert {'README.md', 'README.es.md'}.issubset(set(tracked)), 'Falta el par de README'
+          print('Estructura pública y exclusiones locales correctas.')
+          PY

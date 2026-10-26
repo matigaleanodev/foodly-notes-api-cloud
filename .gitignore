@@ -1,0 +1,28 @@
+# Dependencias y artefactos
+node_modules/
+dist/
+coverage/
+.serverless/
+
+# Configuración privada
+.env
+.env.*
+!.env.example
+.aws/
+
+# Contexto local: nunca publicar
+AGENTS.md
+agents.md
+roadmap.md
+context.md
+.agents/
+.codex/
+.tmp/
+mentor/
+
+# Archivos del editor y sistema
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.log

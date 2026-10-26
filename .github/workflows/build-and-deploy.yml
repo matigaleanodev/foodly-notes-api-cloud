@@ -1,0 +1,17 @@
+name: build and deploy
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  configuration-required:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    steps:
+      - name: Require deployment implementation
+        shell: bash
+        run: |
+          echo '::error::El despliegue requiere implementar y revisar build, configuración Serverless, OIDC y recuperación.'
+          exit 1
