@@ -1,0 +1,30 @@
+{
+  "name": "foodly-notes-api-cloud",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "node scripts/build.mjs",
+    "check": "npm run typecheck && npm test && npm run build"
+  },
+  "dependencies": {
+    "@middy/core": "7.9.2",
+    "ajv": "8.20.0",
+    "ipaddr.js": "2.5.0",
+    "mongoose": "9.11.4"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "8.10.164",
+    "@types/node": "24.19.2",
+    "esbuild": "0.28.2",
+    "mongodb-memory-server": "11.3.0",
+    "serverless": "4.45.0",
+    "typescript": "7.0.2",
+    "vitest": "5.0.5"
+  }
+}

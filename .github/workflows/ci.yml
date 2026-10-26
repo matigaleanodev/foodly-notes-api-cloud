@@ -2,8 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
+    branches: [main, dev]
   workflow_dispatch:
 
 permissions:
@@ -16,7 +17,7 @@ concurrency:
 jobs:
   repository:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -32,7 +33,7 @@ jobs:
 
           tracked = subprocess.check_output(['git', 'ls-files', '-z']).decode().split('\0')
           forbidden = {'agents.md', 'roadmap.md', 'context.md'}
-          private_dirs = {'.agents', '.codex', '.aws', '.tmp', 'mentor', 'node_modules'}
+          private_dirs = {'.agents', '.codex', '.aws', '.tmp', 'mentor', 'status', 'node_modules'}
           for name in filter(None, tracked):
               path = PurePosixPath(name)
               assert path.name.lower() not in forbidden, f'Archivo local versionado: {name}'
@@ -41,3 +42,12 @@ jobs:
           assert {'README.md', 'README.es.md'}.issubset(set(tracked)), 'Falta el par de README'
           print('Estructura pública y exclusiones locales correctas.')
           PY
+      - name: Setup Node
+        uses: actions/setup-node@v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Check local runtime
+        run: npm run check
