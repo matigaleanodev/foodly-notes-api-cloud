@@ -12,7 +12,7 @@ Evidencias distintas: reloj virtual con fixture mínimo, 20 recetas a 4.999 ms p
 
 ## Assembly CDK y ejecución
 
-infra/stack.ts declara cuatro Lambdas y cuatro integraciones, con trece rutas explícitas configuradas desde src/http/routes.ts. catalog reúne listado/daily/búsqueda, detail reúne detalle/similares y cada grupo selecciona solo sus operaciones; ingredients y health quedan separados. Middy mantiene HTTP/errores. No hay API keys ni catch-all.
+packages/infrastructure/src/stack.ts declara cuatro Lambdas y cuatro integraciones, con trece rutas explícitas configuradas desde packages/contracts/src/routes.ts. catalog reúne listado/daily/búsqueda, detail reúne detalle/similares y cada grupo selecciona solo sus operaciones; ingredients y health quedan separados. Middy mantiene HTTP/errores. No hay API keys ni catch-all.
 
 ```sh
 npm run build
