@@ -1,4 +1,10 @@
 import { Ajv } from 'ajv';
+import {
+  createJsonHttpClient,
+  JsonHttpError,
+  type JsonHttpClient,
+  type JsonRequest,
+} from '../../runtime/http-client.ts';
 import type { Database } from '../../runtime/database.ts';
 import { HttpError } from '../../http/middleware.ts';
 import type { Lang } from '../models.ts';
@@ -85,6 +91,7 @@ const summary = {
   properties: {
     id: { type: 'integer', minimum: 1, maximum: Number.MAX_SAFE_INTEGER },
     title: { type: 'string' },
+    imageType: { type: 'string', nullable: true },
   },
 };
 const validSummaries = ajv.compile<SpoonacularRandomRecipe[]>({ type: 'array', items: summary });
@@ -129,11 +136,36 @@ const validDetail = ajv.compile<SpoonacularRecipeDetail>({
   },
 });
 
+const validDaily = ajv.compile<{ recipes: SpoonacularRandomRecipe[] }>({
+  type: 'object',
+  required: ['recipes'],
+  properties: { recipes: { type: 'array', items: summary } },
+});
+const validSearch = ajv.compile<{ results: SpoonacularRandomRecipe[] }>({
+  type: 'object',
+  required: ['results'],
+  properties: { results: { type: 'array', items: summary } },
+});
+const validTranslations = ajv.compile<{ translations: { text: string }[] }[]>({
+  type: 'array',
+  items: {
+    type: 'object',
+    required: ['translations'],
+    properties: {
+      translations: {
+        type: 'array',
+        minItems: 1,
+        items: { type: 'object', required: ['text'], properties: { text: { type: 'string' } } },
+      },
+    },
+  },
+});
+
 /** Encapsula HTTP y mapeos externos; el transporte inyectable permite probar sin llamadas reales. */
 export function providers(
   db: Database,
   env: NodeJS.ProcessEnv,
-  transport: typeof fetch = fetch,
+  transport: JsonHttpClient = createJsonHttpClient(),
 ): Providers {
   const access = providerAccess(db, env);
   const enabled = () => {
@@ -151,43 +183,8 @@ export function providers(
       throw new Error('Invalid provider URL.');
     return url.href.replace(/\/+$/, '');
   };
-  const request = async (url: URL, init: RequestInit, parent: AbortSignal) => {
-    const controller = new AbortController();
-    const signal = AbortSignal.any([parent, AbortSignal.timeout(5000), controller.signal]);
-    const body = init.body;
-    if (typeof body === 'string' && Buffer.byteLength(body) > 256 * 1024)
-      throw new Error('Provider request too large.');
-    try {
-      const response = await transport(url, { ...init, signal, redirect: 'error' });
-      if (!response.ok) {
-        await response.body?.cancel();
-        if (response.status === 404) throw new HttpError(404, 'Recipe not found.', 'Not Found');
-        throw new Error('Provider HTTP failure.');
-      }
-      if (Number(response.headers.get('content-length')) > 1024 * 1024)
-        throw new Error('Provider response too large.');
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error('Empty provider response.');
-      const chunks: Uint8Array[] = [];
-      let size = 0;
-      try {
-        for (;;) {
-          signal.throwIfAborted();
-          const { done, value } = await reader.read();
-          if (done) break;
-          size += value.byteLength;
-          if (size > 1024 * 1024) throw new Error('Provider response too large.');
-          chunks.push(value);
-        }
-        return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
-      } finally {
-        await reader.cancel().catch(() => undefined);
-      }
-    } finally {
-      controller.abort();
-    }
-  };
   const spoon = async (
+    operation: JsonRequest['operation'],
     path: string,
     params: Record<string, string>,
     signal: AbortSignal,
@@ -201,10 +198,18 @@ export function providers(
           ...params,
           apiKey: required('SPOONACULAR_API_KEY'),
         }).toString();
-        return request(url, {}, signal);
+        return transport(url, {
+          provider: 'spoonacular',
+          operation,
+          method: 'GET',
+          signal,
+          summary: { items: Number(params.number ?? units) },
+        });
       });
     } catch (error) {
       if (error instanceof HttpError && [404, 503].includes(error.statusCode)) throw error;
+      if (error instanceof JsonHttpError && error.status === 404)
+        throw new HttpError(404, 'Recipe not found.', 'Not Found');
       throw new HttpError(502, 'Recipe provider unavailable.', 'Bad Gateway');
     }
   };
@@ -213,11 +218,11 @@ export function providers(
       throw new HttpError(502, 'Recipe provider unavailable.', 'Bad Gateway');
     return value;
   };
-  const image = (r: SpoonacularRandomRecipe & { imageType?: string }) =>
+  const image = (r: SpoonacularRandomRecipe) =>
     r.imageType ? `https://img.spoonacular.com/recipes/${r.id}-556x370.${r.imageType}` : null;
   return {
     async detail(id, signal) {
-      const value = await spoon(`${id}/information`, {}, signal);
+      const value = await spoon('detail', `${id}/information`, {}, signal);
       if (!validDetail(value) || value.id !== id)
         throw new HttpError(502, 'Recipe provider unavailable.', 'Bad Gateway');
       return value;
@@ -226,7 +231,13 @@ export function providers(
     async details(ids, signal) {
       if (!ids.length) return [];
       // El lote conserva la reserva anterior por receta, sin ampliar el presupuesto diario.
-      const value = await spoon('informationBulk', { ids: ids.join(',') }, signal, ids.length);
+      const value = await spoon(
+        'details',
+        'informationBulk',
+        { ids: ids.join(',') },
+        signal,
+        ids.length,
+      );
       if (
         !Array.isArray(value) ||
         !value.every((item): item is SpoonacularRecipeDetail => validDetail(item)) ||
@@ -240,23 +251,31 @@ export function providers(
     },
 
     async daily(signal) {
-      const value = await spoon('random', { number: '12', addRecipeInformation: 'true' }, signal);
-      return summaries((value as { recipes?: unknown })?.recipes).slice(0, 12);
+      const value = await spoon(
+        'daily',
+        'random',
+        { number: '12', addRecipeInformation: 'true' },
+        signal,
+      );
+      if (!validDaily(value))
+        throw new HttpError(502, 'Recipe provider unavailable.', 'Bad Gateway');
+      return value.recipes.slice(0, 12);
     },
 
     async search(query, signal) {
       const value = await spoon(
+        'search',
         'complexSearch',
         { query, number: '12', addRecipeInformation: 'true' },
         signal,
       );
-      return summaries((value as { results?: unknown })?.results)
-        .slice(0, 12)
-        .map((r) => ({ id: r.id, title: r.title, image: image(r) }));
+      if (!validSearch(value))
+        throw new HttpError(502, 'Recipe provider unavailable.', 'Bad Gateway');
+      return value.results.slice(0, 12).map((r) => ({ id: r.id, title: r.title, image: image(r) }));
     },
 
     async similar(id, signal) {
-      const value = await spoon(`${id}/similar`, { number: '6' }, signal);
+      const value = await spoon('similar', `${id}/similar`, { number: '6' }, signal);
       return summaries(value)
         .slice(0, 6)
         .map((r) => ({ sourceId: r.id, title: r.title, image: image(r) }));
@@ -280,27 +299,23 @@ export function providers(
                 : 'https://api.cognitive.microsofttranslator.com/translate',
             );
             url.search = new URLSearchParams({ 'api-version': '3.0', to: target }).toString();
-            return request(
-              url,
-              {
-                method: 'POST',
-                body: JSON.stringify(batch.map((text) => ({ text }))),
-                headers: {
-                  'Ocp-Apim-Subscription-Key': required('AZURE_TRANSLATOR_KEY'),
-                  'Ocp-Apim-Subscription-Region': required('AZURE_TRANSLATOR_REGION'),
-                  'Content-Type': 'application/json',
-                },
-              },
+            return transport(url, {
+              provider: 'azure',
+              operation: 'translate',
               signal,
-            );
+              summary: { items: batch.length, characters, language: target },
+              method: 'POST',
+              body: JSON.stringify(batch.map((text) => ({ text }))),
+              headers: {
+                'Ocp-Apim-Subscription-Key': required('AZURE_TRANSLATOR_KEY'),
+                'Ocp-Apim-Subscription-Region': required('AZURE_TRANSLATOR_REGION'),
+                'Content-Type': 'application/json',
+              },
+            });
           });
-          if (
-            !Array.isArray(value) ||
-            value.length !== batch.length ||
-            value.some((item) => typeof item?.translations?.[0]?.text !== 'string')
-          )
+          if (!validTranslations(value) || value.length !== batch.length)
             throw new Error('Invalid translation response.');
-          return value.map((item) => item.translations[0].text as string);
+          return value.map((item) => item.translations[0]!.text);
         } catch (error) {
           if (error instanceof HttpError && error.statusCode === 503) throw error;
           throw new HttpError(502, 'Translation provider unavailable.', 'Bad Gateway');

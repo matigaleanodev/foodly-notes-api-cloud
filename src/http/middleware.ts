@@ -1,4 +1,5 @@
 import middy from '@middy/core';
+import { requestLogContext } from '../runtime/request-context.ts';
 import type {
   APIGatewayProxyEventV2,
   APIGatewayProxyStructuredResultV2,
@@ -42,6 +43,7 @@ export function json(
 export function http(route: Route, config: Configuration, handler: HttpHandler) {
   type Internal = { foodlyHttp: { requestId: string; started: number } };
   type Request = middy.Request<HttpEvent, HttpResult, Error, Context, Internal>;
+  const requestIds = new WeakMap<HttpEvent, string>();
   const finish = (request: Request) => {
     const state = request.internal.foodlyHttp;
     const headers: Record<string, string> = {
@@ -83,6 +85,7 @@ export function http(route: Route, config: Configuration, handler: HttpHandler) 
         request.context.callbackWaitsForEmptyEventLoop = false;
         request.internal.foodlyHttp = { requestId: randomUUID(), started: performance.now() };
         const { event } = request;
+        requestIds.set(event, request.internal.foodlyHttp.requestId);
         if (event.version !== '2.0' || !isIP(event.requestContext.http.sourceIp)) {
           throw new HttpError(403, 'Forbidden', 'Forbidden');
         }
@@ -119,5 +122,7 @@ export function http(route: Route, config: Configuration, handler: HttpHandler) 
         finish(request);
       },
     })
-    .handler(handler);
+    .handler((event, context) =>
+      requestLogContext.run({ requestId: requestIds.get(event)! }, () => handler(event, context)),
+    );
 }

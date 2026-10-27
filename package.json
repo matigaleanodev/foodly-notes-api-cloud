@@ -24,6 +24,7 @@
     "@aws-sdk/client-secrets-manager": "3.1157.0",
     "@middy/core": "7.9.2",
     "ajv": "8.20.0",
+    "axios": "1.21.0",
     "ipaddr.js": "2.5.0",
     "mongoose": "9.11.4",
     "sanitize-html": "2.18.1"

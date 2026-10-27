@@ -1,3 +1,4 @@
+import { type JsonHttpClient } from '../src/runtime/http-client.ts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { database } from '../src/runtime/database.ts';
 import { REQUEST_BUDGET_MS } from '../src/recipes/handler.ts';
@@ -53,7 +54,7 @@ function delayedTransport(delay: number) {
   let active = 0;
   let maxActive = 0;
   let cancelled = 0;
-  const transport = vi.fn<typeof fetch>(async (input, init) => {
+  const transport = vi.fn<JsonHttpClient>(async (input, init) => {
     active++;
     maxActive = Math.max(maxActive, active);
     try {
@@ -93,7 +94,7 @@ function delayedTransport(delay: number) {
               extendedIngredients: [],
               analyzedInstructions: [],
             };
-      return new Response(JSON.stringify(data));
+      return data;
     } finally {
       active--;
     }
@@ -152,19 +153,50 @@ describe('Riesgo síncrono y límites de proveedores simulados', () => {
     expect(await pending).toMatchObject({ statusCode: 503, headers: { 'retry-after': '5' } });
     expect(transport).not.toHaveBeenCalled();
   });
-  it('el timeout de cada proveedor a 5 s no reintenta y libera la concurrencia', async () => {
+  it('una llamada de 6 s ahora completa y consume la misma unidad de presupuesto', async () => {
     vi.useFakeTimers();
     const db = simulatedDatabase();
+    const reserve = vi.spyOn(db, 'reserve');
     const { transport, metrics } = delayedTransport(6000);
     const api = providers(db, localEnv, transport);
-    const pending = expect(api.detail(1, new AbortController().signal)).rejects.toMatchObject({
-      statusCode: 502,
-    });
-    await vi.advanceTimersByTimeAsync(5000);
-    await pending;
-    expect(metrics()).toEqual({ active: 0, maxActive: 1, cancelled: 1 });
-    expect(transport).toHaveBeenCalledTimes(1);
+    const pending = api.detail(1, new AbortController().signal);
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(await pending).toMatchObject({ id: 1 });
+    expect(metrics()).toEqual({ active: 0, maxActive: 1, cancelled: 0 });
+    expect(reserve).toHaveBeenCalledTimes(1);
   });
+  it.each([
+    { remaining: 29000, duration: 27000 },
+    { remaining: 2000, duration: 1250 },
+  ])(
+    'el deadline efectivo $duration cancela proveedores y libera slots sin reembolsar budgets',
+    async ({ remaining, duration }) => {
+      vi.useFakeTimers();
+      vi.spyOn(console, 'info').mockImplementation(() => undefined);
+      const db = simulatedDatabase();
+      const reserve = vi.spyOn(db, 'reserve');
+      const { transport, metrics } = delayedTransport(60000);
+      const api = providers(db, { ...localEnv, PROVIDER_MAX_CONCURRENCY: '1' }, transport);
+      const handler = createRecipesHandler(db, localEnv, api);
+      const pending = handler(ingredients([1]), {
+        ...context,
+        getRemainingTimeInMillis: () => remaining,
+      });
+      await vi.advanceTimersByTimeAsync(duration);
+      expect(await pending).toMatchObject({ statusCode: 503, headers: { 'retry-after': '5' } });
+      expect(metrics()).toEqual({ active: 0, maxActive: 1, cancelled: 1 });
+      const controller = new AbortController();
+      const next = expect(api.detail(2, controller.signal)).rejects.toMatchObject({
+        statusCode: 502,
+      });
+      await vi.advanceTimersByTimeAsync(1);
+      controller.abort();
+      await next;
+      expect(reserve).toHaveBeenCalledTimes(2);
+      expect(metrics().active).toBe(0);
+      expect(transport).toHaveBeenCalledTimes(2);
+    },
+  );
   it('rechaza saturación por instancia antes de consumir presupuesto', async () => {
     const db = simulatedDatabase();
     const reserve = vi.spyOn(db, 'reserve');
