@@ -1,3 +1,4 @@
+import { createOpenApiDocument } from '../src/contracts/openapi.ts';
 import { rm } from 'node:fs/promises';
 import { Template } from 'aws-cdk-lib/assertions';
 import { describe, expect, it } from 'vitest';
@@ -12,6 +13,8 @@ describe('Stack CDK y API Gateway por responsabilidad', () => {
       template.resourceCountIs('AWS::Lambda::Function', 4);
       template.resourceCountIs('AWS::ApiGatewayV2::Integration', 4);
       template.resourceCountIs('AWS::ApiGatewayV2::Route', 13);
+      template.resourceCountIs('AWS::ApiGatewayV2::Model', 0);
+      template.resourceCountIs('AWS::ApiGateway::RequestValidator', 0);
       template.resourceCountIs('AWS::IAM::Role', 0);
       template.resourceCountIs('AWS::SecretsManager::Secret', 0);
       template.resourceCountIs('AWS::EC2::VPC', 0);
@@ -34,6 +37,10 @@ describe('Stack CDK y API Gateway por responsabilidad', () => {
           Runtime: 'nodejs24.x',
           Architectures: ['arm64'],
         });
+      const document = createOpenApiDocument();
+      const documentedKeys = Object.entries(document.paths).flatMap(([path, operations]) =>
+        Object.keys(operations).map((method) => `${method.toUpperCase()} ${path}`),
+      );
       const routeResources = Object.values(template.findResources('AWS::ApiGatewayV2::Route'));
       expect(routeResources.map((value) => value.Properties.RouteKey).sort()).toEqual(
         Object.values(routes)
@@ -43,6 +50,16 @@ describe('Stack CDK y API Gateway por responsabilidad', () => {
       expect(
         routeResources.every((value) => value.Properties.AuthorizationType === 'AWS_IAM'),
       ).toBe(true);
+      for (const route of routeResources) {
+        expect(route.Properties.RequestModels).toBeUndefined();
+        expect(route.Properties.RequestParameters).toBeUndefined();
+      }
+      expect(documentedKeys.sort()).toEqual(
+        routeResources.map((value) => value.Properties.RouteKey).sort(),
+      );
+      const apiResources = Object.values(template.findResources('AWS::ApiGatewayV2::Api'));
+      expect(apiResources[0]!.Properties.Body).toBeUndefined();
+      expect(apiResources[0]!.Properties.BodyS3Location).toBeUndefined();
       const byKey = Object.fromEntries(
         routeResources.map((value) => [value.Properties.RouteKey, value.Properties.Target]),
       );
