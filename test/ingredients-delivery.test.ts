@@ -1,3 +1,4 @@
+import { type JsonHttpClient } from '../src/runtime/http-client.ts';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import { MongoMemoryServer } from 'mongodb-memory-server';
@@ -38,7 +39,7 @@ describe('Duración local con Mongo efímero y proveedores simulados lentos', ()
     const log = vi.spyOn(console, 'info').mockImplementation(() => undefined);
     let active = 0;
     let maxActive = 0;
-    const transport = vi.fn<typeof fetch>(async (input, init) => {
+    const transport = vi.fn<JsonHttpClient>(async (input, init) => {
       active++;
       maxActive = Math.max(maxActive, active);
       try {
@@ -65,7 +66,7 @@ describe('Duración local con Mongo efímero y proveedores simulados lentos', ()
           : (JSON.parse(String(init?.body)) as { text: string }[]).map(({ text }) => ({
               translations: [{ text: `es:${text}` }],
             }));
-        return new Response(JSON.stringify(data));
+        return data;
       } finally {
         active--;
       }

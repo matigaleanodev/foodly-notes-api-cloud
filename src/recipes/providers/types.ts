@@ -3,6 +3,7 @@ export interface SpoonacularRandomResponse {
 }
 
 export interface SpoonacularRandomRecipe {
+  imageType?: string | null;
   id: number;
   title: string;
   image: string;

@@ -1,3 +1,4 @@
+import { type JsonHttpClient, JsonHttpError } from '../src/runtime/http-client.ts';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 import { MongoMemoryServer } from 'mongodb-memory-server';
@@ -58,13 +59,12 @@ function post(ids: (number | string)[], lang = 'en') {
   return request;
 }
 
-const jsonResponse = (value: unknown) =>
-  new Response(JSON.stringify(value), { headers: { 'content-type': 'application/json' } });
+const jsonResponse = (value: unknown) => value;
 
 describe('Etapa 3: contratos con proveedores simulados y Mongo efímero', () => {
   let mongo: MongoMemoryServer;
   let db: Database;
-  let transport: ReturnType<typeof vi.fn<typeof fetch>>;
+  let transport: ReturnType<typeof vi.fn<JsonHttpClient>>;
   let handler: ReturnType<typeof createRecipesHandler>;
   beforeAll(async () => {
     mongo = await MongoMemoryServer.create({
@@ -83,7 +83,7 @@ describe('Etapa 3: contratos con proveedores simulados y Mongo efímero', () => 
     const connection = await db.connect();
     for (const collection of ['recipes', 'dailyrecipes', 'translationentries', 'securitycounters'])
       await connection.collection(collection).deleteMany({});
-    transport = vi.fn<typeof fetch>(async (input, init) => {
+    transport = vi.fn<JsonHttpClient>(async (input, init) => {
       const url = new URL(String(input));
       if (url.hostname === 'api.cognitive.microsofttranslator.com') {
         const body = JSON.parse(String(init?.body)) as { text: string }[];
@@ -274,7 +274,7 @@ describe('Etapa 3: contratos con proveedores simulados y Mongo efímero', () => 
   it('fallo de Azure no persiste traducción completa ni impide detalle/ingredientes base', async () => {
     transport.mockImplementation(async (input) =>
       String(input).includes('microsofttranslator')
-        ? new Response('', { status: 503 })
+        ? Promise.reject(new JsonHttpError('HTTP_STATUS', 503))
         : jsonResponse(detailFixture(42)),
     );
     const response = await handler(event('/api/recipes/42', 'lang=es'), context);
@@ -334,7 +334,7 @@ describe('Etapa 3: contratos con proveedores simulados y Mongo efímero', () => 
     const normal = transport.getMockImplementation()!;
     transport.mockImplementation(async (...args) =>
       String(args[0]).includes('microsofttranslator')
-        ? new Response('', { status: 500 })
+        ? Promise.reject(new JsonHttpError('HTTP_STATUS', 500))
         : normal(...args),
     );
     expect(
@@ -409,12 +409,12 @@ describe('Etapa 3: contratos con proveedores simulados y Mongo efímero', () => 
     expect(transport).toHaveBeenCalledTimes(1);
   });
   it('propaga 404/502 de Spoonacular y rechaza payload de proveedor inválido sin persistir', async () => {
-    transport.mockResolvedValueOnce(new Response('', { status: 404 }));
+    transport.mockRejectedValueOnce(new JsonHttpError('HTTP_STATUS', 404));
     expect(await handler(event('/api/recipes/99'), context)).toMatchObject({
       statusCode: 404,
       body: '{"statusCode":404,"message":"Recipe not found.","error":"Not Found"}',
     });
-    transport.mockResolvedValueOnce(new Response('', { status: 503 }));
+    transport.mockRejectedValueOnce(new JsonHttpError('HTTP_STATUS', 503));
     expect((await handler(event('/api/recipes/99'), context)).statusCode).toBe(502);
     transport.mockResolvedValueOnce(jsonResponse({ id: 99, title: 'Incomplete' }));
     expect((await handler(event('/api/recipes/99'), context)).statusCode).toBe(502);
@@ -423,7 +423,7 @@ describe('Etapa 3: contratos con proveedores simulados y Mongo efímero', () => 
   it.each([404, 503])(
     'HEAD conserva el error de proveedor HTTP %s y omite su JSON',
     async (status) => {
-      transport.mockResolvedValueOnce(new Response('', { status }));
+      transport.mockRejectedValueOnce(new JsonHttpError('HTTP_STATUS', status));
       const response = await handler(event('/api/recipes/99', '', '127.0.0.1', 'HEAD'), context);
       expect(response).toMatchObject({ statusCode: status === 404 ? 404 : 502, body: '' });
     },

@@ -1,4 +1,5 @@
 import type { Context } from 'aws-lambda';
+import { RequestCancellation } from '../runtime/request-context.ts';
 import { Ajv } from 'ajv';
 import { runtimeEnvironment } from '../runtime/secrets.ts';
 import { configuration } from '../runtime/config.ts';
@@ -63,7 +64,13 @@ export function createRecipeHandler(
       1,
       Math.min(REQUEST_BUDGET_MS, context.getRemainingTimeInMillis() - 750),
     );
-    const timer = setTimeout(() => controller.abort(), duration);
+    const timer = setTimeout(
+      () =>
+        controller.abort(
+          new RequestCancellation(duration < REQUEST_BUDGET_MS ? 'lambda_margin' : 'deadline'),
+        ),
+      duration,
+    );
     timer.unref();
     let abort: () => void = () => undefined;
     const deadline = new Promise<never>((_resolve, reject) => {
@@ -111,7 +118,7 @@ export function createRecipeHandler(
     } finally {
       clearTimeout(timer);
       signal.removeEventListener('abort', abort);
-      controller.abort();
+      controller.abort(new RequestCancellation('completed'));
     }
   });
   if (route.operation === 'getIngredients')

@@ -38,6 +38,32 @@ describe('Contratos neutrales HTTP', () => {
     ]);
   });
 
+  it('CDK conserva metadata neutral y configuración pura sin clientes runtime', async () => {
+    const bundled = await build({
+      entryPoints: ['infra/stack.ts'],
+      bundle: true,
+      packages: 'external',
+      platform: 'node',
+      format: 'esm',
+      write: false,
+      metafile: true,
+    });
+    expect(
+      Object.keys(bundled.metafile!.inputs).every(
+        (path) =>
+          path.startsWith('infra/') ||
+          path.startsWith('src/contracts/') ||
+          path === 'src/http/routes.ts' ||
+          path === 'src/runtime/config.ts',
+      ),
+    ).toBe(true);
+    expect(
+      Object.values(bundled.metafile!.outputs)
+        .flatMap((output) => output.imports)
+        .some((entry) => entry.path.includes('axios')),
+    ).toBe(false);
+  });
+
   it('valida la forma canónica sin coerción, defaults ni eliminación de campos', () => {
     const input: IngredientsRequest = { sourceIds: [1, Number.MAX_SAFE_INTEGER], lang: 'es' };
     expect(validateIngredients(input)).toBe(true);

@@ -1,3 +1,4 @@
+import { type JsonHttpClient } from '../src/runtime/http-client.ts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { database } from '../src/runtime/database.ts';
 import { storedQuery } from '../src/recipes/handler.ts';
@@ -6,7 +7,7 @@ import { createRecipesHandler } from './gateway.ts';
 import { providers } from '../src/recipes/providers/client.ts';
 import { context, env, event } from './helpers.ts';
 
-const noProvider = vi.fn<typeof fetch>(async () => {
+const noProvider = vi.fn<JsonHttpClient>(async () => {
   throw new Error('No external calls allowed');
 });
 const db = { ...database(() => undefined), increment: async () => 1, reserve: async () => true };
