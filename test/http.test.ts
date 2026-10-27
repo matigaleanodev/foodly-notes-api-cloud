@@ -1,12 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createHealthHandler } from '../src/health/handler.ts';
-import { createRecipeHandler, storedQuery } from '../src/recipes/handler.ts';
+import {
+  createRecipeHandler,
+  createRecipeGroupHandler,
+  storedQuery,
+} from '../src/recipes/handler.ts';
 import { createRecipesHandler } from './gateway.ts';
 import { configuration } from '../src/runtime/config.ts';
 import { tracker } from '../src/http/quotas.ts';
 import { database } from '../src/runtime/database.ts';
-import serverless from '../serverless.ts';
-import { routes, recipeRoutes, eventsFor } from '../src/http/routes.ts';
+import { routes } from '../src/http/routes.ts';
 import { context, env, event } from './helpers.ts';
 
 describe('Contratos HTTP locales', () => {
@@ -28,23 +31,6 @@ describe('Contratos HTTP locales', () => {
       statusCode: 200,
       body: '',
     });
-  });
-  it('configura CORS y preflight en Gateway sin integración OPTIONS ni Lambda', () => {
-    expect(serverless.provider.httpApi.cors).toEqual({
-      allowedOrigins: ['http://localhost:8100', 'capacitor://localhost'],
-      allowedMethods: ['GET', 'HEAD', 'POST', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Accept'],
-      exposedResponseHeaders: [
-        'Retry-After',
-        'X-RateLimit-Limit',
-        'X-RateLimit-Remaining',
-        'X-RateLimit-Reset',
-      ],
-      maxAge: 600,
-      allowCredentials: false,
-    });
-    const events = Object.values(serverless.functions).flatMap((fn) => fn.events);
-    expect(events.some(({ httpApi }) => String(httpApi.method) === 'OPTIONS')).toBe(false);
   });
   it('errores de handler preservan JSON, no-store y headers de seguridad', async () => {
     const response = await createHealthHandler({ ...env, NODE_ENV: 'production' })(
@@ -122,19 +108,18 @@ describe('Contratos HTTP locales', () => {
     expect(() => configuration({ ...env, RATE_LIMIT_GLOBAL: '-1' })).toThrow();
     expect(configuration({ ...env, RATE_LIMIT_GLOBAL: '10' }).globalLimit).toBe(10);
   });
-  it('cada endpoint integra una función con export fijo y sin catch-all ni métodos ANY', () => {
-    expect(serverless.functions.health.events).toEqual(eventsFor(routes.health));
-    for (const route of recipeRoutes) {
-      const fn = serverless.functions[route.handler];
-      expect(fn.events).toEqual(eventsFor(route));
-      expect(fn.handler).toBe(`recipes.${route.handler}`);
+  it('cada grupo rechaza rutas de otros grupos antes de consultar persistencia', async () => {
+    const db = database(() => undefined);
+    const requests = [
+      { group: 'catalog', path: '/api/recipes/7' },
+      { group: 'detail', path: '/api/recipes/daily' },
+      { group: 'ingredients', path: '/api/recipes/search' },
+    ] as const;
+    for (const { group, path } of requests) {
+      expect(
+        (await createRecipeGroupHandler(group, db, env)(event(path), context)).statusCode,
+      ).toBe(404);
     }
-    expect(Object.keys(serverless.functions)).toHaveLength(7);
-    const events = Object.values(serverless.functions).flatMap((fn) => fn.events);
-    expect(events).toHaveLength(13);
-    expect(JSON.stringify(events)).not.toMatch(/proxy|default|ANY/);
-    expect(serverless.functions.health).not.toHaveProperty('environment');
-    expect(serverless.provider.runtime).toBe('nodejs24.x');
   });
   it('un handler fijo rechaza eventos de otra integración sin enrutar por la URL', async () => {
     const fixed = createRecipeHandler(

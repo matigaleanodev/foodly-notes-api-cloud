@@ -1,0 +1,29 @@
+import { App } from 'aws-cdk-lib';
+import { mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import settings from '../infra/local-settings.json' with { type: 'json' };
+import { deploymentConfiguration } from '../infra/config.ts';
+import { FoodlyNotesStack } from '../infra/stack.ts';
+
+export { settings };
+
+/** Assets ZIP vacíos distintos para probar infraestructura, sin simular ejecución Lambda. */
+export async function stackFixture() {
+  const directory = await mkdtemp(join(tmpdir(), 'foodly-cdk-test-'));
+  for (const name of ['health', 'recipes']) {
+    const header = Buffer.from('504b0506000000000000000000000000000000000000', 'hex');
+    header.writeUInt16LE(name.length, 20);
+    await writeFile(join(directory, `${name}.zip`), Buffer.concat([header, Buffer.from(name)]));
+  }
+  const app = new App({
+    outdir: join(directory, 'assembly'),
+    analyticsReporting: false,
+    context: { 'aws:cdk:version-reporting': false },
+  });
+  const stack = new FoodlyNotesStack(app, 'FoodlyNotesTest', {
+    configuration: deploymentConfiguration(settings),
+    assetDirectory: directory,
+  });
+  return { directory, app, stack };
+}

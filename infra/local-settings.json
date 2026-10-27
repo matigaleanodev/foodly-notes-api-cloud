@@ -1,0 +1,11 @@
+{
+  "TEST_HEALTH_MONGO_SECRET_ARN": "arn:aws:secretsmanager:us-east-1:650387442642:secret:foodly-notes/test/mongo-health-Ab1234",
+  "TEST_MONGO_SECRET_ARN": "arn:aws:secretsmanager:us-east-1:650387442642:secret:foodly-notes/test/mongo-Ab1234",
+  "TEST_PROVIDER_SECRET_ARN": "arn:aws:secretsmanager:us-east-1:650387442642:secret:foodly-notes/test/providers-Ab1234",
+  "TEST_RECIPES_ROLE_ARN": "arn:aws:iam::650387442642:role/foodly-notes-test-recipes",
+  "TEST_HEALTH_ROLE_ARN": "arn:aws:iam::650387442642:role/foodly-notes-test-health",
+  "TEST_DEPLOYMENT_BUCKET": "foodly-notes-test-synthetic-artifacts",
+  "TEST_SUBNET_IDS": "subnet-12345678,subnet-abcdef01",
+  "TEST_SECURITY_GROUP_IDS": "sg-12345678",
+  "TEST_CORS_ORIGIN": "https://test.foodlynotes.app,capacitor://localhost,http://localhost"
+}

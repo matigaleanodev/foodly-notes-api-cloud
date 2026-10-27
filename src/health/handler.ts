@@ -1,3 +1,4 @@
+import { runtimeEnvironment } from '../runtime/secrets.ts';
 import { configuration } from '../runtime/config.ts';
 import { database, type Database } from '../runtime/database.ts';
 import { http, json } from '../http/middleware.ts';
@@ -6,7 +7,7 @@ import { routes } from '../http/routes.ts';
 /** Ejecuta checks independientes, acotados y sin escrituras; no expone errores internos. */
 export function createHealthHandler(
   env: NodeJS.ProcessEnv = process.env,
-  db: Pick<Database, 'ping'> = database(() => env.MONGO_URI, 1),
+  db: Pick<Database, 'ping'> = database(async () => (await runtimeEnvironment(env)()).MONGO_URI, 1),
 ) {
   // Los middleware solo necesitan production; la configuración se valida dentro de su propio check.
   const middlewareConfig = {
@@ -53,4 +54,7 @@ export function createHealthHandler(
   });
 }
 
-export const handler = createHealthHandler();
+const ready = runtimeEnvironment(process.env);
+const db = database(async () => (await ready()).MONGO_URI, 1);
+
+export const handler = createHealthHandler(process.env, db);

@@ -3,6 +3,8 @@ node_modules/
 dist/
 coverage/
 .serverless/
+.serverless-*/
+cdk.out/
 
 # Configuración privada
 .env
