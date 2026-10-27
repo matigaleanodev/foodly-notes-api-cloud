@@ -2,7 +2,7 @@ import type { Context } from 'aws-lambda';
 import { RequestCancellation } from '../runtime/request-context.ts';
 import { Ajv } from 'ajv';
 import { runtimeEnvironment } from '../runtime/secrets.ts';
-import { configuration } from '../runtime/config.ts';
+import { configuration } from '@foodly-notes/contracts/configuration';
 import { database, type Database } from '../runtime/database.ts';
 import { http, HttpError, json, type HttpEvent, type HttpResult } from '../http/middleware.ts';
 import {
@@ -11,8 +11,8 @@ import {
   methodsFor,
   type RecipeGroup,
   type RecipeRoute,
-} from '../http/routes.ts';
-import type { StoredRecipesQuery } from '../contracts/recipes.ts';
+} from '@foodly-notes/contracts/routes';
+import type { StoredRecipesQuery } from '@foodly-notes/contracts/recipes';
 import { quota } from '../http/quotas.ts';
 import { providers, busy, type Providers } from './providers/client.ts';
 import { recipeService } from './service.ts';

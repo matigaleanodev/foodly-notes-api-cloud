@@ -1,0 +1,24 @@
+{
+  "name": "@foodly-notes/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./configuration": "./src/configuration.ts",
+    "./health": "./src/health.ts",
+    "./http": "./src/http.ts",
+    "./http-input": "./src/http-input.ts",
+    "./ingredients": "./src/ingredients.ts",
+    "./openapi": "./src/openapi.ts",
+    "./recipes": "./src/recipes.ts",
+    "./responses": "./src/responses.ts",
+    "./routes": "./src/routes.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --project tsconfig.json",
+    "openapi": "node ../../scripts/generate-openapi.mjs"
+  },
+  "devDependencies": {
+    "json-schema-to-ts": "3.1.1"
+  }
+}

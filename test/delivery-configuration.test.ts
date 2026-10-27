@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { deploymentConfiguration } from '../infra/config.ts';
+import { deploymentConfiguration } from '../packages/infrastructure/src/config.ts';
 import { settings } from './infra-fixtures.ts';
-import { runtimeEnvironment } from '../src/runtime/secrets.ts';
+import { runtimeEnvironment } from '../packages/runtime/src/runtime/secrets.ts';
 
 describe('Preparación local de entrega', () => {
   it('falla cerrado sin parámetros y rechaza roles ajenos a cuenta/entorno', () => {

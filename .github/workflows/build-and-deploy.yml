@@ -135,4 +135,4 @@ jobs:
           test "$(jq -r .Account <<< "$identity")" = 650387442642
           test "$(jq -r .Arn <<< "$identity" | cut -d/ -f2)" = "${PIPELINE_ROLE_ARN##*/}"
           [[ "$TEST_CLOUDFORMATION_ROLE_ARN" =~ ^arn:aws:iam::650387442642:role/foodly-notes-test-[a-zA-Z0-9_-]+$ ]]
-          npx cdk deploy --app cdk.out FoodlyNotesTest --role-arn "$TEST_CLOUDFORMATION_ROLE_ARN" --method direct --require-approval never --no-notices
+          npm exec --workspace=@foodly-notes/infrastructure -- cdk deploy --app ../../cdk.out FoodlyNotesTest --role-arn "$TEST_CLOUDFORMATION_ROLE_ARN" --method direct --require-approval never --no-notices

@@ -1,7 +1,7 @@
 import { readFile, lstat, realpath } from 'node:fs/promises';
 import { resolve, relative, isAbsolute } from 'node:path';
 import assert from 'node:assert/strict';
-import { routes as definitions, methodsFor } from '../src/http/routes.ts';
+import { routes as definitions, methodsFor } from '@foodly-notes/contracts/routes';
 
 const directory = await realpath(resolve(process.argv[2] ?? 'cdk.out'));
 const manifest = JSON.parse(await readFile(resolve(directory, 'manifest.json'), 'utf8'));

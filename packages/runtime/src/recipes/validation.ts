@@ -1,7 +1,11 @@
 import { Ajv } from 'ajv';
-import { routes } from '../http/routes.ts';
-import type { IngredientsRequest } from '../contracts/ingredients.ts';
-import type { RecipeLangQuery, SearchRecipesQuery, RecipePath } from '../contracts/recipes.ts';
+import { routes } from '@foodly-notes/contracts/routes';
+import type { IngredientsRequest } from '@foodly-notes/contracts/ingredients';
+import type {
+  RecipeLangQuery,
+  SearchRecipesQuery,
+  RecipePath,
+} from '@foodly-notes/contracts/recipes';
 import type { HttpEvent } from '../http/middleware.ts';
 import { HttpError } from '../http/middleware.ts';
 

@@ -1,5 +1,5 @@
 import type { JSONSchema } from 'json-schema-to-ts';
-import { routes, methodsFor } from '../http/routes.ts';
+import { routes, methodsFor } from './routes.ts';
 
 interface Parameter {
   name: string;

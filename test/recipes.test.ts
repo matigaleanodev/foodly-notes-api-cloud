@@ -1,13 +1,17 @@
-import { type JsonHttpClient, JsonHttpError } from '../src/runtime/http-client.ts';
+import { type JsonHttpClient, JsonHttpError } from '../packages/runtime/src/runtime/http-client.ts';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 import { MongoMemoryServer } from 'mongodb-memory-server';
-import { database, type Database } from '../src/runtime/database.ts';
+import { database, type Database } from '../packages/runtime/src/runtime/database.ts';
 import { createRecipesHandler } from './gateway.ts';
-import { providers, providerAccess } from '../src/recipes/providers/client.ts';
-import { recipeSchema, dailySchema, translationSchema } from '../src/recipes/models.ts';
+import { providers, providerAccess } from '../packages/runtime/src/recipes/providers/client.ts';
+import {
+  recipeSchema,
+  dailySchema,
+  translationSchema,
+} from '../packages/runtime/src/recipes/models.ts';
 import { context, env, event } from './helpers.ts';
-import type { SpoonacularRecipeDetail } from '../src/recipes/providers/types.ts';
+import type { SpoonacularRecipeDetail } from '../packages/runtime/src/recipes/providers/types.ts';
 
 export function detailFixture(id: number): SpoonacularRecipeDetail {
   return {

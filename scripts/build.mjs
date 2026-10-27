@@ -1,3 +1,5 @@
+import { fileURLToPath } from 'node:url';
+process.chdir(fileURLToPath(new URL('..', import.meta.url)));
 import { build } from 'esbuild';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
@@ -5,7 +7,8 @@ import { execFileSync } from 'node:child_process';
 await mkdir('dist', { recursive: true });
 for (const name of ['health', 'recipes']) {
   const result = await build({
-    entryPoints: [`src/${name}/handler.ts`],
+    absWorkingDir: process.cwd(),
+    entryPoints: [`packages/runtime/src/${name}/handler.ts`],
     outfile: `dist/${name}.mjs`,
     bundle: true,
     platform: 'node',
@@ -18,7 +21,14 @@ for (const name of ['health', 'recipes']) {
     legalComments: 'none',
   });
   const inputs = Object.keys(result.metafile.inputs);
-  if (inputs.some((file) => !file.startsWith('src/') && !file.startsWith('node_modules/'))) {
+  if (
+    inputs.some(
+      (file) =>
+        !file.startsWith('packages/runtime/src/') &&
+        !file.startsWith('packages/contracts/src/') &&
+        !file.startsWith('node_modules/'),
+    )
+  ) {
     throw new Error('Unexpected input in runtime package.');
   }
   const file = `dist/${name}.mjs`;
@@ -39,7 +49,7 @@ for (const name of ['health', 'recipes']) {
 const { event, context } = await import('../test/helpers.ts');
 const { createHealthHandler } = await import('../dist/health.mjs');
 const bundled = await import('../dist/recipes.mjs');
-const { routes, recipeRoutes } = await import('../src/http/routes.ts');
+const { routes, recipeRoutes } = await import('@foodly-notes/contracts/routes');
 const { default: assert } = await import('node:assert/strict');
 assert.equal(
   (

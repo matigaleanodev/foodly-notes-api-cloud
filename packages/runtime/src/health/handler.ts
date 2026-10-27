@@ -1,9 +1,9 @@
 import { runtimeEnvironment } from '../runtime/secrets.ts';
-import { configuration } from '../runtime/config.ts';
+import { configuration } from '@foodly-notes/contracts/configuration';
 import { database, type Database } from '../runtime/database.ts';
 import { http, json } from '../http/middleware.ts';
-import { routes } from '../http/routes.ts';
-import type { HealthResponse } from '../contracts/health.ts';
+import { routes } from '@foodly-notes/contracts/routes';
+import type { HealthResponse } from '@foodly-notes/contracts/health';
 
 /** Ejecuta checks independientes, acotados y sin escrituras; no expone errores internos. */
 export function createHealthHandler(

@@ -1,15 +1,15 @@
 import { Ajv } from 'ajv';
 import { build } from 'esbuild';
 import { describe, expect, it } from 'vitest';
-import type { IngredientsRequest } from '../src/contracts/ingredients.ts';
-import type { HealthResponse } from '../src/contracts/health.ts';
+import type { IngredientsRequest } from '@foodly-notes/contracts/ingredients';
+import type { HealthResponse } from '@foodly-notes/contracts/health';
 import type {
   StoredRecipesQuery,
   RecipeLangQuery,
   SearchRecipesQuery,
   RecipePath,
-} from '../src/contracts/recipes.ts';
-import { routes } from '../src/http/routes.ts';
+} from '@foodly-notes/contracts/recipes';
+import { routes } from '@foodly-notes/contracts/routes';
 
 const ajv = new Ajv({ allErrors: true });
 const validateIngredients = ajv.compile<IngredientsRequest>(routes.ingredients.request.body);
@@ -20,7 +20,7 @@ describe('Contratos neutrales HTTP', () => {
     expect(JSON.parse(JSON.stringify(routes))).toEqual(routes);
     expect(routes.health.responses[503].schema).toBe(routes.health.responses[200].schema);
     const bundled = await build({
-      entryPoints: ['src/http/routes.ts'],
+      entryPoints: ['packages/contracts/src/routes.ts'],
       bundle: true,
       platform: 'node',
       format: 'esm',
@@ -28,21 +28,21 @@ describe('Contratos neutrales HTTP', () => {
       metafile: true,
     });
     expect(Object.keys(bundled.metafile!.inputs).sort()).toEqual([
-      'src/contracts/health.ts',
-      'src/contracts/http-input.ts',
-      'src/contracts/http.ts',
-      'src/contracts/ingredients.ts',
-      'src/contracts/recipes.ts',
-      'src/contracts/responses.ts',
-      'src/http/routes.ts',
+      'packages/contracts/src/health.ts',
+      'packages/contracts/src/http-input.ts',
+      'packages/contracts/src/http.ts',
+      'packages/contracts/src/ingredients.ts',
+      'packages/contracts/src/recipes.ts',
+      'packages/contracts/src/responses.ts',
+      'packages/contracts/src/routes.ts',
     ]);
   });
 
   it('CDK conserva metadata neutral y configuración pura sin clientes runtime', async () => {
     const bundled = await build({
-      entryPoints: ['infra/stack.ts'],
+      entryPoints: ['packages/infrastructure/src/stack.ts'],
       bundle: true,
-      packages: 'external',
+      external: ['aws-cdk-lib', 'aws-cdk-lib/*', 'constructs'],
       platform: 'node',
       format: 'esm',
       write: false,
@@ -51,10 +51,10 @@ describe('Contratos neutrales HTTP', () => {
     expect(
       Object.keys(bundled.metafile!.inputs).every(
         (path) =>
-          path.startsWith('infra/') ||
-          path.startsWith('src/contracts/') ||
-          path === 'src/http/routes.ts' ||
-          path === 'src/runtime/config.ts',
+          path.startsWith('packages/infrastructure/src/') ||
+          path.startsWith('packages/contracts/src/') ||
+          path === 'packages/contracts/src/routes.ts' ||
+          path === 'packages/contracts/src/configuration.ts',
       ),
     ).toBe(true);
     expect(

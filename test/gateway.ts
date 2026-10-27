@@ -1,10 +1,10 @@
 import { expectResponseContract } from './response-contract.ts';
 import type { Context } from 'aws-lambda';
-import type { HttpEvent } from '../src/http/middleware.ts';
-import { recipeGroups, recipeRoutes, methodsFor } from '../src/http/routes.ts';
-import { createRecipeGroupHandler } from '../src/recipes/handler.ts';
-import type { Database } from '../src/runtime/database.ts';
-import type { Providers } from '../src/recipes/providers/client.ts';
+import type { HttpEvent } from '../packages/runtime/src/http/middleware.ts';
+import { recipeGroups, recipeRoutes, methodsFor } from '@foodly-notes/contracts/routes';
+import { createRecipeGroupHandler } from '../packages/runtime/src/recipes/handler.ts';
+import type { Database } from '../packages/runtime/src/runtime/database.ts';
+import type { Providers } from '../packages/runtime/src/recipes/providers/client.ts';
 
 /** Simula Gateway entre grupos; cada grupo ejecuta la selección de operaciones de producción. */
 export function createRecipesHandler(
