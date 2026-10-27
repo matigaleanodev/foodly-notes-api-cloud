@@ -1,8 +1,22 @@
+import { expectResponseContract } from './response-contract.ts';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { Ajv } from 'ajv';
+import type { HttpResult } from '../src/http/middleware.ts';
+import { routes } from '../src/http/routes.ts';
+import type { HealthResponse } from '../src/contracts/health.ts';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { createHealthHandler } from '../src/health/handler.ts';
 import { database, type Database } from '../src/runtime/database.ts';
 import { context, env, event } from './helpers.ts';
+
+const validateHealth = new Ajv().compile<HealthResponse>(routes.health.responses[200].schema);
+
+function healthBody(response: HttpResult) {
+  expectResponseContract(routes.health, response);
+  const value: unknown = JSON.parse(response.body!);
+  expect(validateHealth(value)).toBe(true);
+  return value;
+}
 
 describe('Healthcheck independiente', () => {
   let mongo: MongoMemoryServer;
@@ -28,7 +42,7 @@ describe('Healthcheck independiente', () => {
     const handler = createHealthHandler(env, db);
     const response = await handler(event('/api/health'), context);
     expect(response.statusCode).toBe(200);
-    expect(JSON.parse(response.body!)).toEqual([
+    expect(healthBody(response)).toEqual([
       { name: 'configuration', status: 'ok' },
       { name: 'mongo', status: 'ok' },
     ]);
@@ -43,7 +57,7 @@ describe('Healthcheck independiente', () => {
       context,
     );
     expect(response.statusCode).toBe(503);
-    expect(JSON.parse(response.body!)).toEqual([
+    expect(healthBody(response)).toEqual([
       { name: 'configuration', status: 'error' },
       { name: 'mongo', status: 'ok' },
     ]);
@@ -57,7 +71,7 @@ describe('Healthcheck independiente', () => {
     });
     const response = await createHealthHandler(env, { ping })(event('/api/health'), context);
     expect(response).toMatchObject({ statusCode: 503, headers: { 'retry-after': '5' } });
-    expect(JSON.parse(response.body!)).toEqual([
+    expect(healthBody(response)).toEqual([
       { name: 'configuration', status: 'ok' },
       { name: 'mongo', status: 'error' },
     ]);
@@ -73,7 +87,7 @@ describe('Healthcheck independiente', () => {
       event('/api/health'),
       context,
     );
-    expect(JSON.parse(response.body!)).toEqual([
+    expect(healthBody(response)).toEqual([
       { name: 'configuration', status: 'error' },
       { name: 'mongo', status: 'error' },
     ]);
@@ -94,7 +108,7 @@ describe('Healthcheck independiente', () => {
     const response = await pending;
     expect(response.statusCode).toBe(503);
     expect(signal?.aborted).toBe(true);
-    expect(JSON.parse(response.body!)).toEqual([
+    expect(healthBody(response)).toEqual([
       { name: 'configuration', status: 'ok' },
       { name: 'mongo', status: 'error' },
     ]);

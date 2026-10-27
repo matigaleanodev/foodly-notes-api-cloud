@@ -3,6 +3,7 @@ import { configuration } from '../runtime/config.ts';
 import { database, type Database } from '../runtime/database.ts';
 import { http, json } from '../http/middleware.ts';
 import { routes } from '../http/routes.ts';
+import type { HealthResponse } from '../contracts/health.ts';
 
 /** Ejecuta checks independientes, acotados y sin escrituras; no expone errores internos. */
 export function createHealthHandler(
@@ -26,7 +27,7 @@ export function createHealthHandler(
         },
       },
       { name: 'mongo', work: (signal: AbortSignal) => db.ping(signal) },
-    ];
+    ] as const;
     const results = await Promise.allSettled(
       checks.map(async ({ work }) => {
         const controller = new AbortController();
@@ -45,7 +46,7 @@ export function createHealthHandler(
         }
       }),
     );
-    const body = results.map((result, index) => ({
+    const body = results.map<HealthResponse[number]>((result, index) => ({
       name: checks[index]!.name,
       status: result.status === 'fulfilled' ? 'ok' : 'error',
     }));

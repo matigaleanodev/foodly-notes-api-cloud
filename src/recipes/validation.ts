@@ -1,29 +1,15 @@
 import { Ajv } from 'ajv';
+import { routes } from '../http/routes.ts';
+import type { IngredientsRequest } from '../contracts/ingredients.ts';
+import type { RecipeLangQuery, SearchRecipesQuery, RecipePath } from '../contracts/recipes.ts';
 import type { HttpEvent } from '../http/middleware.ts';
 import { HttpError } from '../http/middleware.ts';
-import type { Lang } from './models.ts';
 
 const ajv = new Ajv({ allErrors: true });
-const idSchema = { type: 'integer', minimum: 1, maximum: Number.MAX_SAFE_INTEGER };
-const langSchema = { type: 'string', enum: ['en', 'es'], nullable: true };
-const validateQuery = ajv.compile<{ lang?: Lang; q?: string }>({
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    lang: langSchema,
-    q: { type: 'string', minLength: 1, maxLength: 200, pattern: '^[^\\p{Cc}]*$' },
-  },
-});
-const validateBody = ajv.compile<{ sourceIds: number[]; lang?: Lang }>({
-  type: 'object',
-  additionalProperties: false,
-  required: ['sourceIds'],
-  properties: {
-    sourceIds: { type: 'array', minItems: 1, maxItems: 20, uniqueItems: true, items: idSchema },
-    lang: langSchema,
-  },
-});
-const validateId = ajv.compile<number>(idSchema);
+const validateLangQuery = ajv.compile<RecipeLangQuery>(routes.daily.request.query);
+const validateSearchQuery = ajv.compile<SearchRecipesQuery>(routes.search.request.query);
+const validateBody = ajv.compile<IngredientsRequest>(routes.ingredients.request.body);
+const validatePath = ajv.compile<RecipePath>(routes.detail.request.path);
 const numeric = (value: unknown) =>
   typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value;
 
@@ -31,13 +17,16 @@ export function badInput(message: string) {
   return new HttpError(400, [message], 'Bad Request');
 }
 
-export function recipeId(value: unknown): number {
-  const id = numeric(value);
-  if (!validateId(id)) throw badInput('id must be a positive safe integer');
-  return id;
+export function recipeId(value: unknown): RecipePath['id'] {
+  const path = { id: numeric(value) };
+  if (!validatePath(path)) throw badInput('id must be a positive safe integer');
+  return path.id;
 }
 
-export function recipeQuery(event: HttpEvent, search = false) {
+export function recipeQuery(
+  event: HttpEvent,
+  search = false,
+): Required<RecipeLangQuery> & Partial<SearchRecipesQuery> {
   const params = new URLSearchParams(event.rawQueryString);
   const values: Record<string, unknown> = Object.fromEntries(params);
   for (const key of params.keys()) {
@@ -46,8 +35,8 @@ export function recipeQuery(event: HttpEvent, search = false) {
   }
   if (typeof values.lang === 'string') values.lang = values.lang.trim().toLowerCase();
   if (typeof values.q === 'string') values.q = values.q.trim();
-  if (!validateQuery(values) || (search ? values.q === undefined : Object.hasOwn(values, 'q')))
-    throw badInput('Invalid recipe query');
+  const validateQuery = search ? validateSearchQuery : validateLangQuery;
+  if (!validateQuery(values)) throw badInput('Invalid recipe query');
   return { ...values, lang: values.lang ?? 'en' };
 }
 
