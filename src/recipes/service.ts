@@ -17,6 +17,7 @@ export function recipeService(db: Database, provider: Providers) {
   const daily = new SingleFlight<string, Summary[]>();
   const translations = new SingleFlight<string, string[]>();
   const spanish = new SingleFlight<number, StoredRecipe>();
+  const ingredientRequests = new SingleFlight<string, StoredRecipe[]>();
 
   const texts = (values: string[], targetLang: Lang, signal: AbortSignal) =>
     translations.run(JSON.stringify([targetLang, values]), async () => {
@@ -49,21 +50,22 @@ export function recipeService(db: Database, provider: Providers) {
       const detail = await provider.detail(id, signal);
       return db.insertRecipe(mapRecipePersistence(id, detail), signal);
     });
-  const translateRecipe = (recipe: StoredRecipe, signal: AbortSignal) =>
-    spanish.run(recipe.sourceId, async () => {
-      if (recipe.translations?.es) return recipe;
-      try {
-        const values = [
-          recipe.base.title,
-          recipe.base.summary,
-          ...recipe.base.instructions.flatMap((block) => block.steps.map((step) => step.text)),
-          ...recipe.base.ingredients.flatMap((ingredient) => [
-            ingredient.name,
-            ingredient.original,
-          ]),
-        ];
-        const translated = await texts(values, 'es', signal);
-        let index = 0;
+  const recipeTexts = (recipe: StoredRecipe) => [
+    recipe.base.title,
+    recipe.base.summary,
+    ...recipe.base.instructions.flatMap((block) => block.steps.map((step) => step.text)),
+    ...recipe.base.ingredients.flatMap((ingredient) => [ingredient.name, ingredient.original]),
+  ];
+  const translateRecipes = async (values: StoredRecipe[], signal: AbortSignal) => {
+    const missing = values.filter((recipe) => !recipe.translations?.es);
+    if (!missing.length) return values;
+    try {
+      // Unificar textos evita una llamada Azure por receta y deduplica ingredientes compartidos.
+      const translated = await texts(missing.flatMap(recipeTexts), 'es', signal);
+      let index = 0;
+      const localized = new Map<number, StoredRecipe>();
+      for (const recipe of missing) {
+        signal.throwIfAborted();
         const title = translated[index++]!;
         const summary = sanitizeSummary(translated[index++]!);
         const instructions = recipe.base.instructions.map((block) => ({
@@ -75,15 +77,23 @@ export function recipeService(db: Database, provider: Providers) {
           name: translated[index++]!,
           original: translated[index++]!,
         }));
-        return await db.saveSpanish(
+        localized.set(
           recipe.sourceId,
-          { title, summary, instructions, ingredients, translatedAt: new Date() },
-          signal,
+          await db.saveSpanish(
+            recipe.sourceId,
+            { title, summary, instructions, ingredients, translatedAt: new Date() },
+            signal,
+          ),
         );
-      } catch {
-        return recipe;
       }
-    });
+      return values.map((recipe) => localized.get(recipe.sourceId) ?? recipe);
+    } catch {
+      // Mantener las traducciones existentes y el contenido base ante fallos o presupuesto agotado.
+      return values;
+    }
+  };
+  const translateRecipe = (recipe: StoredRecipe, signal: AbortSignal) =>
+    spanish.run(recipe.sourceId, async () => (await translateRecipes([recipe], signal))[0]!);
   const localizedRecipe = async (id: number, lang: Lang, signal: AbortSignal) => {
     const recipe = await loadRecipe(id, signal);
     return lang === 'es' ? translateRecipe(recipe, signal) : recipe;
@@ -139,15 +149,23 @@ export function recipeService(db: Database, provider: Providers) {
     },
 
     async ingredients(ids: number[], lang: Lang, signal: AbortSignal) {
-      const result: StoredRecipe[] = [];
-      for (let offset = 0; offset < ids.length; offset += 4) {
-        signal.throwIfAborted();
-        result.push(
-          ...(await Promise.all(
-            ids.slice(offset, offset + 4).map((id) => localizedRecipe(id, lang, signal)),
-          )),
-        );
-      }
+      const result = await ingredientRequests.run(JSON.stringify([ids, lang]), async () => {
+        const cached = await db.recipesByIds(ids, signal);
+        const byId = new Map(cached.map((recipe) => [recipe.sourceId, recipe]));
+        const missing = ids.filter((id) => !byId.has(id));
+        if (missing.length) {
+          const loaded = await provider.details(missing, signal);
+          for (const value of loaded) {
+            signal.throwIfAborted();
+            byId.set(
+              value.id,
+              await db.insertRecipe(mapRecipePersistence(value.id, value), signal),
+            );
+          }
+        }
+        const values = ids.map((id) => byId.get(id)!);
+        return lang === 'es' ? translateRecipes(values, signal) : values;
+      });
       return result.map((recipe) => mapRecipeIngredientsResponse(recipe, lang));
     },
   };

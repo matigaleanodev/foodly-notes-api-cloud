@@ -67,14 +67,15 @@ describe('Entradas y fallos HTTP afectados por recetas', () => {
     vi.spyOn(console, 'info').mockImplementation(() => undefined);
     const store = {
       ...db,
-      recipe: async (id: number) => ({
-        sourceId: id,
-        source: 'spoonacular',
-        originalLang: 'en',
-        base: { title: 'Cached', summary: '', instructions: [], ingredients: [] },
-        meta: {},
-        translations: {},
-      }),
+      recipesByIds: async (ids: number[]) =>
+        ids.map((id) => ({
+          sourceId: id,
+          source: 'spoonacular',
+          originalLang: 'en',
+          base: { title: 'Cached', summary: '', instructions: [], ingredients: [] },
+          meta: {},
+          translations: {},
+        })),
     };
     const response = await createRecipesHandler(store, env)(
       body({ sourceIds: ['001'], lang: ' EN ' }, true),

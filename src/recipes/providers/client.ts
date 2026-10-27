@@ -6,6 +6,7 @@ import type { SpoonacularRecipeDetail, SpoonacularRandomRecipe } from './types.t
 
 export interface Providers {
   detail(id: number, signal: AbortSignal): Promise<SpoonacularRecipeDetail>;
+  details(ids: number[], signal: AbortSignal): Promise<SpoonacularRecipeDetail[]>;
   daily(signal: AbortSignal): Promise<SpoonacularRandomRecipe[]>;
   search(
     query: string,
@@ -135,6 +136,10 @@ export function providers(
   transport: typeof fetch = fetch,
 ): Providers {
   const access = providerAccess(db, env);
+  const enabled = () => {
+    if (env.NODE_ENV === 'production' && env.REAL_PROVIDERS_ENABLED !== 'true')
+      throw busy('External providers disabled.');
+  };
   const required = (name: string) => {
     const value = env[name];
     if (!value) throw new Error('Missing provider configuration.');
@@ -182,9 +187,15 @@ export function providers(
       controller.abort();
     }
   };
-  const spoon = async (path: string, params: Record<string, string>, signal: AbortSignal) => {
+  const spoon = async (
+    path: string,
+    params: Record<string, string>,
+    signal: AbortSignal,
+    units = 1,
+  ) => {
     try {
-      return await access('spoonacular', 1, signal, () => {
+      enabled();
+      return await access('spoonacular', units, signal, () => {
         const url = new URL(`${https(required('SPOONACULAR_BASE_URL'))}/recipes/${path}`);
         url.search = new URLSearchParams({
           ...params,
@@ -207,9 +218,25 @@ export function providers(
   return {
     async detail(id, signal) {
       const value = await spoon(`${id}/information`, {}, signal);
-      if (!validDetail(value))
+      if (!validDetail(value) || value.id !== id)
         throw new HttpError(502, 'Recipe provider unavailable.', 'Bad Gateway');
       return value;
+    },
+
+    async details(ids, signal) {
+      if (!ids.length) return [];
+      // El lote conserva la reserva anterior por receta, sin ampliar el presupuesto diario.
+      const value = await spoon('informationBulk', { ids: ids.join(',') }, signal, ids.length);
+      if (
+        !Array.isArray(value) ||
+        !value.every((item): item is SpoonacularRecipeDetail => validDetail(item)) ||
+        new Set(value.map((item) => item.id)).size !== value.length ||
+        value.some((item) => !ids.includes(item.id))
+      )
+        throw new HttpError(502, 'Recipe provider unavailable.', 'Bad Gateway');
+      if (value.length !== ids.length) throw new HttpError(404, 'Recipe not found.', 'Not Found');
+      const byId = new Map(value.map((item) => [item.id, item]));
+      return ids.map((id) => byId.get(id)!);
     },
 
     async daily(signal) {
@@ -236,9 +263,12 @@ export function providers(
     },
 
     async translate(texts, target, signal) {
-      const translated: string[] = [];
-      for (let offset = 0; offset < texts.length; offset += 100) {
-        const batch = texts.slice(offset, offset + 100);
+      enabled();
+      const concurrency = Math.min(4, positiveSetting(env.PROVIDER_MAX_CONCURRENCY, 4));
+      const batches = Array.from({ length: Math.ceil(texts.length / 100) }, (_, i) =>
+        texts.slice(i * 100, (i + 1) * 100),
+      );
+      const translateBatch = async (batch: string[]) => {
         const characters = batch.reduce((sum, text) => sum + text.length, 0);
         if (characters > 50000)
           throw new HttpError(502, 'Translation input exceeds provider limits.', 'Bad Gateway');
@@ -270,10 +300,22 @@ export function providers(
             value.some((item) => typeof item?.translations?.[0]?.text !== 'string')
           )
             throw new Error('Invalid translation response.');
-          translated.push(...value.map((item) => item.translations[0].text as string));
+          return value.map((item) => item.translations[0].text as string);
         } catch (error) {
           if (error instanceof HttpError && error.statusCode === 503) throw error;
           throw new HttpError(502, 'Translation provider unavailable.', 'Bad Gateway');
+        }
+      };
+      const translated: string[] = [];
+      for (let offset = 0; offset < batches.length; offset += concurrency) {
+        signal.throwIfAborted();
+        // Esperar toda la tanda antes de fallar: sin trabajo huérfano ni nuevas llamadas tras error.
+        const results = await Promise.allSettled(
+          batches.slice(offset, offset + concurrency).map(translateBatch),
+        );
+        for (const result of results) {
+          if (result.status === 'rejected') throw result.reason;
+          translated.push(...result.value);
         }
       }
       return translated;

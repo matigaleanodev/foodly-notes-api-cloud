@@ -13,6 +13,57 @@ const db = () => ({ ...database(() => undefined), reserve: vi.fn(async () => tru
 const reply = (value: unknown) => new Response(JSON.stringify(value));
 afterEach(() => vi.restoreAllMocks());
 describe('Límites de transporte y lotes de proveedores simulados', () => {
+  it('bulk correlaciona por id, conserva reserva por receta y no acepta IDs duplicados o ajenos', async () => {
+    const store = db();
+    const detail = (id: number) => ({
+      id,
+      title: 'Recipe',
+      extendedIngredients: [],
+      analyzedInstructions: [],
+    });
+    const transport = vi.fn<typeof fetch>(async () => reply([detail(2), detail(1)]));
+    const api = providers(store, settings, transport);
+    expect((await api.details([1, 2], signal())).map((value) => value.id)).toEqual([1, 2]);
+    expect(store.reserve.mock.calls.map((args: unknown[]) => args[1])).toEqual([2]);
+    expect(new URL(String(transport.mock.calls[0]?.[0])).pathname).toBe('/recipes/informationBulk');
+    for (const invalid of [[detail(1), detail(1)], [detail(1), detail(3)], [{ id: 1 }]]) {
+      transport.mockResolvedValueOnce(reply(invalid));
+      await expect(api.details([1, 2], signal())).rejects.toMatchObject({ statusCode: 502 });
+    }
+    transport.mockResolvedValueOnce(reply([detail(1)]));
+    await expect(api.details([1, 2], signal())).rejects.toMatchObject({ statusCode: 404 });
+  });
+  it('proveedores reales permanecen deshabilitados en producción salvo habilitación explícita', async () => {
+    const transport = vi.fn<typeof fetch>();
+    const store = db();
+    const api = providers(store, { ...settings, NODE_ENV: 'production' }, transport);
+    await expect(api.details([1, 2], signal())).rejects.toMatchObject({ statusCode: 503 });
+    await expect(api.translate(['rice'], 'es', signal())).rejects.toMatchObject({
+      statusCode: 503,
+    });
+    expect(transport).not.toHaveBeenCalled();
+    expect(store.reserve).not.toHaveBeenCalled();
+  });
+  it('una tanda Azure fallida espera sus llamadas y no empieza la siguiente ni reintenta', async () => {
+    const store = db();
+    let active = 0;
+    const transport = vi.fn<typeof fetch>(async () => {
+      active++;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      active--;
+      return reply([]);
+    });
+    const api = providers(store, settings, transport);
+    await expect(
+      api.translate(
+        Array.from({ length: 501 }, (_, i) => String(i)),
+        'es',
+        signal(),
+      ),
+    ).rejects.toMatchObject({ statusCode: 502 });
+    expect(transport).toHaveBeenCalledTimes(4);
+    expect(active).toBe(0);
+  });
   it('Azure divide a 100 textos y reserva caracteres UTF-16 por lote antes de enviarlos', async () => {
     const store = db();
     const transport = vi.fn<typeof fetch>(async (_url, init) =>

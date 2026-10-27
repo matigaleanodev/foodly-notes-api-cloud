@@ -80,6 +80,16 @@ export function database(uri: () => string | undefined) {
         .exec();
     },
 
+    /** Lee el lote sin consultas individuales; el servicio conserva el orden solicitado. */
+    async recipesByIds(ids: number[], signal: AbortSignal) {
+      const { recipes } = await models(signal);
+      return recipes
+        .find({ sourceId: { $in: ids } })
+        .setOptions(options(signal))
+        .lean<StoredRecipe[]>()
+        .exec();
+    },
+
     async recipe(sourceId: number, signal: AbortSignal) {
       const { recipes } = await models(signal);
       return recipes.findOne({ sourceId }).setOptions(options(signal)).lean<StoredRecipe>().exec();
