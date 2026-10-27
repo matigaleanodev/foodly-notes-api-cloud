@@ -1,3 +1,4 @@
+import { expectResponseContract } from './response-contract.ts';
 import type { Context } from 'aws-lambda';
 import type { HttpEvent } from '../src/http/middleware.ts';
 import { recipeGroups, recipeRoutes, methodsFor } from '../src/http/routes.ts';
@@ -22,6 +23,11 @@ export function createRecipesHandler(
   return async (request: HttpEvent, context: Context) => {
     const handler = handlers.get(request.routeKey);
     if (!handler) return { statusCode: 404, body: JSON.stringify({ message: 'Not Found' }) };
-    return handler(request, context);
+    const result = await handler(request, context);
+    const route = recipeRoutes.find((candidate) =>
+      methodsFor(candidate).some((method) => request.routeKey === `${method} ${candidate.path}`),
+    )!;
+    expectResponseContract(route, result, request.requestContext.http.method);
+    return result;
   };
 }

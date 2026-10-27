@@ -4,28 +4,25 @@ import { runtimeEnvironment } from '../runtime/secrets.ts';
 import { configuration } from '../runtime/config.ts';
 import { database, type Database } from '../runtime/database.ts';
 import { http, HttpError, json, type HttpEvent, type HttpResult } from '../http/middleware.ts';
-import { routesFor, methodsFor, type RecipeGroup, type RecipeRoute } from '../http/routes.ts';
+import {
+  routes,
+  routesFor,
+  methodsFor,
+  type RecipeGroup,
+  type RecipeRoute,
+} from '../http/routes.ts';
+import type { StoredRecipesQuery } from '../contracts/recipes.ts';
 import { quota } from '../http/quotas.ts';
 import { providers, busy, type Providers } from './providers/client.ts';
 import { recipeService } from './service.ts';
 import { mapStoredRecipeSummary } from './mapper.ts';
 import { ingredientsBody, recipeId, recipeQuery } from './validation.ts';
 
-interface StoredQuery {
-  limit: number;
-  after?: number;
-}
-const validate = new Ajv({ allErrors: true }).compile<StoredQuery>({
-  type: 'object',
-  additionalProperties: false,
-  required: ['limit'],
-  properties: {
-    limit: { type: 'integer', minimum: 1, maximum: 100 },
-    after: { type: 'integer', minimum: 1, maximum: Number.MAX_SAFE_INTEGER },
-  },
-});
+const validate = new Ajv({ allErrors: true }).compile<StoredRecipesQuery>(
+  routes.recipes.request.query,
+);
 
-export function storedQuery(event: HttpEvent): StoredQuery {
+export function storedQuery(event: HttpEvent): StoredRecipesQuery {
   const params = new URLSearchParams(event.rawQueryString);
   const values: Record<string, unknown> = Object.fromEntries(params);
   for (const key of params.keys()) {
@@ -48,6 +45,8 @@ export function storedQuery(event: HttpEvent): StoredQuery {
 
 export const REQUEST_BUDGET_MS = 27000;
 
+type RecipeEvent = HttpEvent & { ingredientsBody?: ReturnType<typeof ingredientsBody> };
+
 /** Aplica middleware y límites a una operación; el grupo recibe solo sus rutas declaradas. */
 export function createRecipeHandler(
   route: RecipeRoute,
@@ -57,7 +56,7 @@ export function createRecipeHandler(
 ) {
   const config = configuration(env);
   const service = recipeService(db, provider);
-  return http(route, config, async (event: HttpEvent, context: Context): Promise<HttpResult> => {
+  const handler = http(route, config, async (event: RecipeEvent, context): Promise<HttpResult> => {
     const controller = new AbortController();
     const { signal } = controller;
     const duration = Math.max(
@@ -73,7 +72,7 @@ export function createRecipeHandler(
     });
     try {
       const work = async () => {
-        const body = route.operation === 'getIngredients' ? ingredientsBody(event) : undefined;
+        // Query/path se validan después de cuotas, a diferencia del body de ingredientes.
         const headers = await quota(db, event.requestContext.http.sourceIp, config, signal, route);
         let result: unknown;
         switch (route.operation) {
@@ -82,9 +81,11 @@ export function createRecipeHandler(
             result = (await db.list(limit, after, signal)).map(mapStoredRecipeSummary);
             break;
           }
-          case 'getIngredients':
-            result = await service.ingredients(body!.sourceIds, body!.lang, signal);
+          case 'getIngredients': {
+            const body = event.ingredientsBody!;
+            result = await service.ingredients(body.sourceIds, body.lang, signal);
             break;
+          }
           default: {
             const query = recipeQuery(event, route.operation === 'searchRecipes');
             if (route.operation === 'getDailyRecipes')
@@ -113,6 +114,11 @@ export function createRecipeHandler(
       controller.abort();
     }
   });
+  if (route.operation === 'getIngredients')
+    handler.before(({ event }) => {
+      event.ingredientsBody = ingredientsBody(event);
+    });
+  return handler;
 }
 
 // La misma declaración alimenta CDK y la selección acotada de operaciones dentro del grupo.

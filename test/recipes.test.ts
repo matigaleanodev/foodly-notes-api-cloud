@@ -178,6 +178,60 @@ describe('Etapa 3: contratos con proveedores simulados y Mongo efímero', () => 
       expect(JSON.parse(response.body!).summary).toBe('');
     },
   );
+  it('conserva null/omisión de metadatos, números negativos y arrays vacíos del caché', async () => {
+    await handler(event('/api/recipes/42'), context);
+    await (await db.connect()).collection('recipes').updateOne(
+      { sourceId: 42 },
+      {
+        $set: {
+          'meta.image': null,
+          'meta.sourceUrl': null,
+          'meta.sourceName': null,
+          'meta.readyInMinutes': null,
+          'meta.vegetarian': null,
+          'meta.cookingMinutes': -1,
+          'base.instructions': [],
+          'base.ingredients': [],
+        },
+        $unset: { 'meta.servings': '', 'meta.healthScore': '' },
+      },
+    );
+    const response = JSON.parse((await handler(event('/api/recipes/42'), context)).body!);
+    expect(response).toMatchObject({
+      readyInMinutes: null,
+      vegetarian: null,
+      sourceName: null,
+      cookingMinutes: -1,
+      instructions: [],
+      ingredients: [],
+    });
+    for (const field of ['image', 'sourceUrl', 'servings', 'healthScore'])
+      expect(response).not.toHaveProperty(field);
+    expect(JSON.parse((await handler(post([42]), context)).body!)).toEqual([
+      { sourceId: 42, title: 'Recipe 42', ingredients: [] },
+    ]);
+  });
+
+  it('daily/similares omiten imagen ausente y búsqueda devuelve null incluso en arrays vacíos', async () => {
+    const normal = transport.getMockImplementation()!;
+    transport.mockImplementation(async (...args) => {
+      const url = new URL(String(args[0]));
+      if (url.pathname.endsWith('/random'))
+        return jsonResponse({ recipes: [{ id: 1, title: 'Daily', image: 'javascript:bad()' }] });
+      if (url.pathname.endsWith('/similar')) return jsonResponse([{ id: 2, title: 'Similar' }]);
+      return normal(...args);
+    });
+    expect(JSON.parse((await handler(event('/api/recipes/daily'), context)).body!)).toEqual([
+      { sourceId: 1, title: 'Daily' },
+    ]);
+    expect(JSON.parse((await handler(event('/api/recipes/42/similar'), context)).body!)).toEqual([
+      { sourceId: 2, title: 'Similar' },
+    ]);
+    transport.mockResolvedValue(jsonResponse({ results: [] }));
+    expect(
+      JSON.parse((await handler(event('/api/recipes/search', 'q=rice'), context)).body!),
+    ).toEqual([]);
+  });
   it('SingleFlight comparte detalle y traducción concurrentes por instancia', async () => {
     const results = await Promise.all(
       Array.from({ length: 6 }, () => handler(event('/api/recipes/42', 'lang=ES'), context)),
@@ -303,6 +357,38 @@ describe('Etapa 3: contratos con proveedores simulados y Mongo efímero', () => 
     );
     expect(translated[0].title).toBe('es:Similar');
   });
+  it('normaliza query/path y conserva HEAD y parámetros de path ignorados en las cuatro operaciones', async () => {
+    const targets = [
+      ['/api/recipes/daily', 'lang=%20EN%20'],
+      ['/api/recipes/search', 'q=%20rice%20&lang=%20EN%20'],
+      ['/api/recipes/00042', 'lang=%20EN%20'],
+      ['/api/recipes/00042/similar', 'lang=%20EN%20'],
+    ];
+    for (const [path, query] of targets) {
+      for (const method of ['GET', 'HEAD']) {
+        const request = event(path, query, '127.0.0.1', method);
+        request.pathParameters = { ...request.pathParameters, ignored: 'value' };
+        const response = await handler(request, context);
+        expect(response).toMatchObject({
+          statusCode: 200,
+          headers: { 'cache-control': 'no-store' },
+        });
+        if (method === 'HEAD') expect(response.body).toBe('');
+        else expect(JSON.parse(response.body!)).toBeDefined();
+      }
+    }
+    const urls = transport.mock.calls.map(([url]) => new URL(String(url)));
+    expect(
+      urls.filter((url) => url.pathname.endsWith('/information')).map((url) => url.pathname),
+    ).toEqual(['/recipes/42/information']);
+    expect(
+      urls
+        .filter((url) => url.pathname.endsWith('/complexSearch'))
+        .every((url) => url.searchParams.get('query') === 'rice'),
+    ).toBe(true);
+    expect(urls.some((url) => url.pathname === '/recipes/42/similar')).toBe(true);
+  });
+
   it('ingredientes conserva orden, cantidades y separación de recetas en lotes de 20', async () => {
     const ids = Array.from({ length: 20 }, (_, i) => 20 - i);
     const response = await handler(post(ids), {
@@ -334,6 +420,14 @@ describe('Etapa 3: contratos con proveedores simulados y Mongo efímero', () => 
     expect((await handler(event('/api/recipes/99'), context)).statusCode).toBe(502);
     expect(await (await db.connect()).collection('recipes').countDocuments()).toBe(0);
   });
+  it.each([404, 503])(
+    'HEAD conserva el error de proveedor HTTP %s y omite su JSON',
+    async (status) => {
+      transport.mockResolvedValueOnce(new Response('', { status }));
+      const response = await handler(event('/api/recipes/99', '', '127.0.0.1', 'HEAD'), context);
+      expect(response).toMatchObject({ statusCode: status === 404 ? 404 : 502, body: '' });
+    },
+  );
   it('presupuestos persisten aun con fallos, bloquean antes de llamar y Azure agotado devuelve base', async () => {
     const limitedEnv = {
       ...providerEnv,

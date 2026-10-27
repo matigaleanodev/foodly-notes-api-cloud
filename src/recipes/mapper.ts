@@ -1,3 +1,10 @@
+import type {
+  StoredRecipesResponse,
+  DailyRecipesResponse,
+  SearchRecipesResponse,
+  RecipeDetailResponse,
+  IngredientsResponse,
+} from '../contracts/responses.ts';
 import type { Lang, StoredRecipe as RecipeDocument } from './models.ts';
 
 import { safeHttpUrl, safeImage, sanitizeSummary } from './content.ts';
@@ -5,7 +12,9 @@ import type { SpoonacularRandomRecipe, SpoonacularRecipeDetail } from './provide
 
 type RecipeTranslation = RecipeDocument['translations'][string];
 
-export function mapDailyRecipeSummary(recipe: SpoonacularRandomRecipe) {
+export function mapDailyRecipeSummary(
+  recipe: SpoonacularRandomRecipe,
+): DailyRecipesResponse[number] {
   return {
     sourceId: recipe.id,
     title: recipe.title,
@@ -17,7 +26,7 @@ export function mapSearchRecipeSummary(recipe: {
   id: number;
   title: string;
   image: string | null;
-}) {
+}): SearchRecipesResponse[number] {
   return {
     sourceId: recipe.id,
     title: recipe.title,
@@ -25,7 +34,9 @@ export function mapSearchRecipeSummary(recipe: {
   };
 }
 
-export function mapStoredRecipeSummary(recipe: Pick<RecipeDocument, 'sourceId' | 'base' | 'meta'>) {
+export function mapStoredRecipeSummary(
+  recipe: Pick<RecipeDocument, 'sourceId' | 'base' | 'meta'>,
+): StoredRecipesResponse[number] {
   return {
     sourceId: recipe.sourceId,
     title: recipe.base.title,
@@ -73,7 +84,7 @@ export function mapRecipePersistence(sourceId: number, spoonacularRecipe: Spoona
   };
 }
 
-export function mapRecipeDetailResponse(recipe: RecipeDocument, lang: Lang) {
+export function mapRecipeDetailResponse(recipe: RecipeDocument, lang: Lang): RecipeDetailResponse {
   if (lang === 'es' && recipe.translations?.es) {
     return buildRecipeDetailResponse(recipe, 'es', recipe.translations.es);
   }
@@ -81,7 +92,10 @@ export function mapRecipeDetailResponse(recipe: RecipeDocument, lang: Lang) {
   return buildRecipeDetailResponse(recipe, 'en');
 }
 
-export function mapRecipeIngredientsResponse(recipe: RecipeDocument, lang: Lang) {
+export function mapRecipeIngredientsResponse(
+  recipe: RecipeDocument,
+  lang: Lang,
+): IngredientsResponse[number] {
   if (lang === 'es' && recipe.translations?.es) {
     return {
       sourceId: recipe.sourceId,
