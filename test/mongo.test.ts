@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { createHash } from 'node:crypto';
-import { database, type Database } from '../src/runtime/database.ts';
+import { database, type Database } from '../packages/runtime/src/runtime/database.ts';
 import { createRecipesHandler } from './gateway.ts';
 import { context, env, event } from './helpers.ts';
 

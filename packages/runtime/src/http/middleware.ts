@@ -7,8 +7,8 @@ import type {
 } from 'aws-lambda';
 import { randomUUID } from 'node:crypto';
 import { isIP } from 'node:net';
-import type { Configuration } from '../runtime/config.ts';
-import { methodsFor, type Route } from './routes.ts';
+import type { Configuration } from '@foodly-notes/contracts/configuration';
+import { methodsFor, type Route } from '@foodly-notes/contracts/routes';
 
 export type HttpEvent = APIGatewayProxyEventV2;
 

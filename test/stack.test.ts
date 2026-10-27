@@ -1,9 +1,9 @@
-import { createOpenApiDocument } from '../src/contracts/openapi.ts';
+import { createOpenApiDocument } from '@foodly-notes/contracts/openapi';
 import { rm } from 'node:fs/promises';
 import { Template } from 'aws-cdk-lib/assertions';
 import { describe, expect, it } from 'vitest';
 import { stackFixture } from './infra-fixtures.ts';
-import { routes, methodsFor } from '../src/http/routes.ts';
+import { routes, methodsFor } from '@foodly-notes/contracts/routes';
 
 describe('Stack CDK y API Gateway por responsabilidad', () => {
   it('sintetiza cuatro Lambdas y mapea las trece rutas explícitas a su grupo', async () => {

@@ -1,14 +1,14 @@
 import { Ajv } from 'ajv';
 import { build } from 'esbuild';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createOpenApiDocument } from '../src/contracts/openapi.ts';
-import { routes, methodsFor } from '../src/http/routes.ts';
-import { httpErrorSchemas } from '../src/contracts/http.ts';
+import { createOpenApiDocument } from '@foodly-notes/contracts/openapi';
+import { routes, methodsFor } from '@foodly-notes/contracts/routes';
+import { httpErrorSchemas } from '@foodly-notes/contracts/http';
 import {
   recipeSummarySchema,
   searchRecipesResponseSchema,
   ingredientsResponseSchema,
-} from '../src/contracts/responses.ts';
+} from '@foodly-notes/contracts/responses';
 import type {
   StoredRecipesResponse,
   DailyRecipesResponse,
@@ -16,11 +16,15 @@ import type {
   SimilarRecipesResponse,
   RecipeDetailResponse,
   IngredientsResponse,
-} from '../src/contracts/responses.ts';
-import { ingredientsBody, recipeId, recipeQuery } from '../src/recipes/validation.ts';
-import { storedQuery, createRecipeHandler } from '../src/recipes/handler.ts';
-import { createHealthHandler } from '../src/health/handler.ts';
-import { database } from '../src/runtime/database.ts';
+} from '@foodly-notes/contracts/responses';
+import {
+  ingredientsBody,
+  recipeId,
+  recipeQuery,
+} from '../packages/runtime/src/recipes/validation.ts';
+import { storedQuery, createRecipeHandler } from '../packages/runtime/src/recipes/handler.ts';
+import { createHealthHandler } from '../packages/runtime/src/health/handler.ts';
+import { database } from '../packages/runtime/src/runtime/database.ts';
 import { context, env, event } from './helpers.ts';
 import { expectResponseContract } from './response-contract.ts';
 
@@ -77,15 +81,15 @@ describe('Respuestas y OpenAPI desde contratos neutrales', () => {
 
   it('el generador y sus imports no cargan infraestructura, handlers, AJV ni clientes', async () => {
     const bundle = await build({
-      entryPoints: ['src/contracts/openapi.ts'],
+      entryPoints: ['packages/contracts/src/openapi.ts'],
       bundle: true,
       write: false,
       metafile: true,
       platform: 'node',
     });
     expect(
-      Object.keys(bundle.metafile!.inputs).every(
-        (path) => path.startsWith('src/contracts/') || path === 'src/http/routes.ts',
+      Object.keys(bundle.metafile!.inputs).every((path) =>
+        path.startsWith('packages/contracts/src/'),
       ),
     ).toBe(true);
   });

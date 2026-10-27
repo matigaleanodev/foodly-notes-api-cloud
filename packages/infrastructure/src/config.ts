@@ -1,4 +1,4 @@
-import { configuration } from '../src/runtime/config.ts';
+import { configuration } from '@foodly-notes/contracts/configuration';
 
 export const ACCOUNT = '650387442642';
 

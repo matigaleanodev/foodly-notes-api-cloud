@@ -11,7 +11,7 @@ import { CfnLogGroup } from 'aws-cdk-lib/aws-logs';
 import { Asset } from 'aws-cdk-lib/aws-s3-assets';
 import type { Construct } from 'constructs';
 import { resolve } from 'node:path';
-import { routes, methodsFor, recipeGroups } from '../src/http/routes.ts';
+import { routes, methodsFor, recipeGroups } from '@foodly-notes/contracts/routes';
 import { ACCOUNT, REGION, STACK_NAME, type DeploymentConfiguration } from './config.ts';
 
 interface FoodlyNotesStackProps extends StackProps {

@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 import ipaddr from 'ipaddr.js';
 import type { Database } from '../runtime/database.ts';
-import type { Configuration } from '../runtime/config.ts';
-import type { RecipeRoute } from './routes.ts';
+import type { Configuration } from '@foodly-notes/contracts/configuration';
+import type { RecipeRoute } from '@foodly-notes/contracts/routes';
 import { HttpError } from './middleware.ts';
 
 export function tracker(ip: string) {

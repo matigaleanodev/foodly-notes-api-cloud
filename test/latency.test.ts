@@ -1,11 +1,11 @@
-import { type JsonHttpClient } from '../src/runtime/http-client.ts';
+import { type JsonHttpClient } from '../packages/runtime/src/runtime/http-client.ts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { database } from '../src/runtime/database.ts';
-import { REQUEST_BUDGET_MS } from '../src/recipes/handler.ts';
+import { database } from '../packages/runtime/src/runtime/database.ts';
+import { REQUEST_BUDGET_MS } from '../packages/runtime/src/recipes/handler.ts';
 import { createRecipesHandler } from './gateway.ts';
-import { providers, providerAccess } from '../src/recipes/providers/client.ts';
+import { providers, providerAccess } from '../packages/runtime/src/recipes/providers/client.ts';
 import { context, env, event } from './helpers.ts';
-import type { StoredRecipe, TranslationEntry } from '../src/recipes/models.ts';
+import type { StoredRecipe, TranslationEntry } from '../packages/runtime/src/recipes/models.ts';
 
 const localEnv = {
   ...env,

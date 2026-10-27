@@ -1,7 +1,7 @@
-import { type JsonHttpClient, JsonHttpError } from '../src/runtime/http-client.ts';
+import { type JsonHttpClient, JsonHttpError } from '../packages/runtime/src/runtime/http-client.ts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { database } from '../src/runtime/database.ts';
-import { providers } from '../src/recipes/providers/client.ts';
+import { database } from '../packages/runtime/src/runtime/database.ts';
+import { providers } from '../packages/runtime/src/recipes/providers/client.ts';
 
 const settings = {
   SPOONACULAR_BASE_URL: 'https://spoon.invalid',

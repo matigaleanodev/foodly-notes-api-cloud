@@ -2,9 +2,9 @@ import { App } from 'aws-cdk-lib';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import settings from '../infra/local-settings.json' with { type: 'json' };
-import { deploymentConfiguration } from '../infra/config.ts';
-import { FoodlyNotesStack } from '../infra/stack.ts';
+import settings from '../packages/infrastructure/src/local-settings.json' with { type: 'json' };
+import { deploymentConfiguration } from '../packages/infrastructure/src/config.ts';
+import { FoodlyNotesStack } from '../packages/infrastructure/src/stack.ts';
 
 export { settings };
 

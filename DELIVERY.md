@@ -12,7 +12,7 @@ Separate evidence: virtual clock/minimal fixture, 20 recipes with 4,999 ms per c
 
 ## CDK assembly and execution
 
-infra/stack.ts declares four Lambdas/four integrations and thirteen explicit routes configured from src/http/routes.ts. catalog groups list/daily/search, detail groups detail/similar, with bounded operation selection inside each group; ingredients and health stay separate. Middy retains HTTP/error middleware. There are no API keys or catch-all routes.
+packages/infrastructure/src/stack.ts declares four Lambdas/four integrations and thirteen explicit routes configured from packages/contracts/src/routes.ts. catalog groups list/daily/search, detail groups detail/similar, with bounded operation selection inside each group; ingredients and health stay separate. Middy retains HTTP/error middleware. There are no API keys or catch-all routes.
 
 ```sh
 npm run build

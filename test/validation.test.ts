@@ -1,10 +1,10 @@
-import { type JsonHttpClient } from '../src/runtime/http-client.ts';
+import { type JsonHttpClient } from '../packages/runtime/src/runtime/http-client.ts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { database } from '../src/runtime/database.ts';
-import { storedQuery } from '../src/recipes/handler.ts';
-import { recipeId, recipeQuery } from '../src/recipes/validation.ts';
+import { database } from '../packages/runtime/src/runtime/database.ts';
+import { storedQuery } from '../packages/runtime/src/recipes/handler.ts';
+import { recipeId, recipeQuery } from '../packages/runtime/src/recipes/validation.ts';
 import { createRecipesHandler } from './gateway.ts';
-import { providers } from '../src/recipes/providers/client.ts';
+import { providers } from '../packages/runtime/src/recipes/providers/client.ts';
 import { context, env, event } from './helpers.ts';
 
 const noProvider = vi.fn<JsonHttpClient>(async () => {

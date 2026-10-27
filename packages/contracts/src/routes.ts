@@ -1,11 +1,11 @@
-import { healthResponseSchema } from '../contracts/health.ts';
-import { ingredientsRequestSchema } from '../contracts/ingredients.ts';
+import { healthResponseSchema } from './health.ts';
+import { ingredientsRequestSchema } from './ingredients.ts';
 import {
   storedRecipesQuerySchema,
   recipeLangQuerySchema,
   searchRecipesQuerySchema,
   recipePathSchema,
-} from '../contracts/recipes.ts';
+} from './recipes.ts';
 
 import {
   storedRecipesResponseSchema,
@@ -14,7 +14,7 @@ import {
   recipeDetailResponseSchema,
   similarRecipesResponseSchema,
   ingredientsResponseSchema,
-} from '../contracts/responses.ts';
+} from './responses.ts';
 import {
   commonErrorResponses,
   recipeErrorResponses,
@@ -23,14 +23,14 @@ import {
   retryHeaders,
   quotaResponseHeaders,
   httpErrorSchemas,
-} from '../contracts/http.ts';
+} from './http.ts';
 import {
   storedRecipesHttpQuerySchema,
   recipeLangHttpQuerySchema,
   searchRecipesHttpQuerySchema,
   recipeHttpPathSchema,
   ingredientsHttpRequestSchema,
-} from '../contracts/http-input.ts';
+} from './http-input.ts';
 
 export const routes = {
   health: {

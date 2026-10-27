@@ -13,12 +13,12 @@ import {
   MAX_RESPONSE_BYTES,
   type JsonHttpClient,
   type JsonRequest,
-} from '../src/runtime/http-client.ts';
-import { database } from '../src/runtime/database.ts';
-import { providers } from '../src/recipes/providers/client.ts';
+} from '../packages/runtime/src/runtime/http-client.ts';
+import { database } from '../packages/runtime/src/runtime/database.ts';
+import { providers } from '../packages/runtime/src/recipes/providers/client.ts';
 import { createRecipesHandler } from './gateway.ts';
 import { context, env, event } from './helpers.ts';
-import { RequestCancellation } from '../src/runtime/request-context.ts';
+import { RequestCancellation } from '../packages/runtime/src/runtime/request-context.ts';
 
 const settings = {
   ...env,

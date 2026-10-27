@@ -1,15 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createHealthHandler } from '../src/health/handler.ts';
+import { createHealthHandler } from '../packages/runtime/src/health/handler.ts';
 import {
   createRecipeHandler,
   createRecipeGroupHandler,
   storedQuery,
-} from '../src/recipes/handler.ts';
+} from '../packages/runtime/src/recipes/handler.ts';
 import { createRecipesHandler } from './gateway.ts';
-import { configuration } from '../src/runtime/config.ts';
-import { tracker } from '../src/http/quotas.ts';
-import { database } from '../src/runtime/database.ts';
-import { routes } from '../src/http/routes.ts';
+import { configuration } from '@foodly-notes/contracts/configuration';
+import { tracker } from '../packages/runtime/src/http/quotas.ts';
+import { database } from '../packages/runtime/src/runtime/database.ts';
+import { routes } from '@foodly-notes/contracts/routes';
 import { context, env, event } from './helpers.ts';
 
 describe('Contratos HTTP locales', () => {

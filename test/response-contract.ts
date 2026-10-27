@@ -1,8 +1,8 @@
 import { Ajv, type ValidateFunction } from 'ajv';
 import { expect } from 'vitest';
 import type { JSONSchema } from 'json-schema-to-ts';
-import type { Route } from '../src/http/routes.ts';
-import type { HttpResult } from '../src/http/middleware.ts';
+import type { Route } from '@foodly-notes/contracts/routes';
+import type { HttpResult } from '../packages/runtime/src/http/middleware.ts';
 
 const ajv = new Ajv({ allErrors: true });
 const validators = new Map<JSONSchema, ValidateFunction>();

@@ -1,12 +1,12 @@
 import { expectResponseContract } from './response-contract.ts';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Ajv } from 'ajv';
-import type { HttpResult } from '../src/http/middleware.ts';
-import { routes } from '../src/http/routes.ts';
-import type { HealthResponse } from '../src/contracts/health.ts';
+import type { HttpResult } from '../packages/runtime/src/http/middleware.ts';
+import { routes } from '@foodly-notes/contracts/routes';
+import type { HealthResponse } from '@foodly-notes/contracts/health';
 import { MongoMemoryServer } from 'mongodb-memory-server';
-import { createHealthHandler } from '../src/health/handler.ts';
-import { database, type Database } from '../src/runtime/database.ts';
+import { createHealthHandler } from '../packages/runtime/src/health/handler.ts';
+import { database, type Database } from '../packages/runtime/src/runtime/database.ts';
 import { context, env, event } from './helpers.ts';
 
 const validateHealth = new Ajv().compile<HealthResponse>(routes.health.responses[200].schema);

@@ -4,7 +4,7 @@ import type {
   SearchRecipesResponse,
   RecipeDetailResponse,
   IngredientsResponse,
-} from '../contracts/responses.ts';
+} from '@foodly-notes/contracts/responses';
 import type { Lang, StoredRecipe as RecipeDocument } from './models.ts';
 
 import { safeHttpUrl, safeImage, sanitizeSummary } from './content.ts';
