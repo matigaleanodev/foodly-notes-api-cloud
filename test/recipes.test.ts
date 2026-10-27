@@ -93,6 +93,14 @@ describe('Etapa 3: contratos con proveedores simulados y Mongo efímero', () => 
           })),
         );
       }
+      if (url.pathname.endsWith('/informationBulk'))
+        return jsonResponse(
+          url.searchParams
+            .get('ids')!
+            .split(',')
+            .map((id) => detailFixture(Number(id)))
+            .reverse(),
+        );
       const id = /recipes\/(\d+)/.exec(url.pathname)?.[1];
       if (url.pathname.endsWith('/information')) return jsonResponse(detailFixture(Number(id)));
       if (url.pathname.endsWith('/random'))
@@ -310,9 +318,9 @@ describe('Etapa 3: contratos con proveedores simulados y Mongo efímero', () => 
           r.ingredients.length === 1 && r.ingredients[0]!.amount === 1,
       ),
     ).toBe(true);
-    expect(transport).toHaveBeenCalledTimes(20);
+    expect(transport).toHaveBeenCalledTimes(1);
     await handler(post(ids), context);
-    expect(transport).toHaveBeenCalledTimes(20);
+    expect(transport).toHaveBeenCalledTimes(1);
   });
   it('propaga 404/502 de Spoonacular y rechaza payload de proveedor inválido sin persistir', async () => {
     transport.mockResolvedValueOnce(new Response('', { status: 404 }));

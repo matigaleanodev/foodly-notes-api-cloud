@@ -1,36 +1,36 @@
 export const routes = {
-  health: { method: 'GET', path: '/api/health' },
-  recipes: { method: 'GET', path: '/api/recipes', handler: 'list', operation: 'getAllRecipes' },
+  health: { method: 'GET', path: '/api/health', group: 'health' },
+  recipes: { method: 'GET', path: '/api/recipes', group: 'catalog', operation: 'getAllRecipes' },
   daily: {
     method: 'GET',
     path: '/api/recipes/daily',
-    handler: 'daily',
+    group: 'catalog',
     operation: 'getDailyRecipes',
   },
   search: {
     method: 'GET',
     path: '/api/recipes/search',
-    handler: 'search',
+    group: 'catalog',
     operation: 'searchRecipes',
     limit: 20,
   },
   detail: {
     method: 'GET',
     path: '/api/recipes/{id}',
-    handler: 'detail',
+    group: 'detail',
     operation: 'getRecipeDetails',
   },
   similar: {
     method: 'GET',
     path: '/api/recipes/{id}/similar',
-    handler: 'similar',
+    group: 'detail',
     operation: 'getSimilarRecipes',
     limit: 20,
   },
   ingredients: {
     method: 'POST',
     path: '/api/recipes/ingredients',
-    handler: 'ingredients',
+    group: 'ingredients',
     operation: 'getIngredients',
     limit: 10,
   },
@@ -49,10 +49,14 @@ export const recipeRoutes = [
 
 export type RecipeRoute = (typeof recipeRoutes)[number];
 
-export function methodsFor(route: Route): ('GET' | 'POST' | 'HEAD')[] {
-  return route.method === 'GET' ? ['GET', 'HEAD'] : ['POST'];
+export const recipeGroups = ['catalog', 'detail', 'ingredients'] as const;
+
+export type RecipeGroup = (typeof recipeGroups)[number];
+
+export function routesFor(group: RecipeGroup) {
+  return recipeRoutes.filter((route) => route.group === group);
 }
 
-export function eventsFor(route: Route) {
-  return methodsFor(route).map((method) => ({ httpApi: { method, path: route.path } }));
+export function methodsFor(route: Route): ('GET' | 'POST' | 'HEAD')[] {
+  return route.method === 'GET' ? ['GET', 'HEAD'] : ['POST'];
 }

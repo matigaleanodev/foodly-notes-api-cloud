@@ -1,9 +1,10 @@
 import type { Context } from 'aws-lambda';
 import { Ajv } from 'ajv';
+import { runtimeEnvironment } from '../runtime/secrets.ts';
 import { configuration } from '../runtime/config.ts';
 import { database, type Database } from '../runtime/database.ts';
 import { http, HttpError, json, type HttpEvent, type HttpResult } from '../http/middleware.ts';
-import { routes, type RecipeRoute } from '../http/routes.ts';
+import { routesFor, methodsFor, type RecipeGroup, type RecipeRoute } from '../http/routes.ts';
 import { quota } from '../http/quotas.ts';
 import { providers, busy, type Providers } from './providers/client.ts';
 import { recipeService } from './service.ts';
@@ -47,7 +48,7 @@ export function storedQuery(event: HttpEvent): StoredQuery {
 
 export const REQUEST_BUDGET_MS = 27000;
 
-/** Compone un handler de operación fija; Gateway selecciona la función antes de invocarlo. */
+/** Aplica middleware y límites a una operación; el grupo recibe solo sus rutas declaradas. */
 export function createRecipeHandler(
   route: RecipeRoute,
   db: Database,
@@ -114,16 +115,34 @@ export function createRecipeHandler(
   });
 }
 
-const db = database(() => process.env.MONGO_URI);
+// La misma declaración alimenta CDK y la selección acotada de operaciones dentro del grupo.
+export function createRecipeGroupHandler(
+  group: RecipeGroup,
+  db: Database,
+  env: NodeJS.ProcessEnv = process.env,
+  provider: Providers = providers(db, env),
+) {
+  const allowed = routesFor(group);
+  const handlers = new Map<string, ReturnType<typeof createRecipeHandler>>();
+  for (const route of allowed) {
+    const handler = createRecipeHandler(route, db, env, provider);
+    for (const method of methodsFor(route)) handlers.set(`${method} ${route.path}`, handler);
+  }
+  const reject = handlers.values().next().value!;
+  return (event: HttpEvent, context: Context) =>
+    (handlers.get(event.routeKey) ?? reject)(event, context);
+}
 
-export const list = createRecipeHandler(routes.recipes, db);
+const runtimeEnv = { ...process.env };
+const ready = runtimeEnvironment(runtimeEnv);
+const db = database(async () => {
+  const loaded = await ready();
+  Object.assign(runtimeEnv, loaded);
+  return loaded.MONGO_URI;
+});
 
-export const daily = createRecipeHandler(routes.daily, db);
+export const catalog = createRecipeGroupHandler('catalog', db, runtimeEnv);
 
-export const search = createRecipeHandler(routes.search, db);
+export const detail = createRecipeGroupHandler('detail', db, runtimeEnv);
 
-export const detail = createRecipeHandler(routes.detail, db);
-
-export const similar = createRecipeHandler(routes.similar, db);
-
-export const ingredients = createRecipeHandler(routes.ingredients, db);
+export const ingredients = createRecipeGroupHandler('ingredients', db, runtimeEnv);

@@ -21,9 +21,6 @@ for (const name of ['health', 'recipes']) {
   if (inputs.some((file) => !file.startsWith('src/') && !file.startsWith('node_modules/'))) {
     throw new Error('Unexpected input in runtime package.');
   }
-  if (name === 'health' && inputs.some((file) => /mongoose|mongodb|database/.test(file))) {
-    throw new Error('Health must be independent of MongoDB.');
-  }
   const file = `dist/${name}.mjs`;
   const contents = await readFile(file, 'utf8');
   if (/mongodb(?:\+srv)?:\/\/[^'"\s]+@|AKIA[0-9A-Z]{16}/.test(contents)) {
@@ -44,9 +41,18 @@ const { createHealthHandler } = await import('../dist/health.mjs');
 const bundled = await import('../dist/recipes.mjs');
 const { routes, recipeRoutes } = await import('../src/http/routes.ts');
 const { default: assert } = await import('node:assert/strict');
-assert.equal((await createHealthHandler()(event('/api/health'), context)).statusCode, 200);
+assert.equal(
+  (
+    await createHealthHandler(undefined, { ping: async () => undefined })(
+      event('/api/health'),
+      context,
+    )
+  ).statusCode,
+  200,
+);
 const localStore = {
   increment: async () => 1,
+  recipesByIds: async () => [await localStore.recipe(7)],
   list: async () => [{ sourceId: 7, base: { title: 'Local recipe' } }],
   recipe: async (sourceId) => ({
     sourceId,
@@ -77,21 +83,30 @@ const localProviders = {
   },
 };
 const samples = {
-  list: event(),
-  daily: event('/api/recipes/daily'),
-  search: event('/api/recipes/search', 'q=rice'),
-  detail: event('/api/recipes/7'),
-  similar: event('/api/recipes/7/similar'),
-  ingredients: event('/api/recipes/ingredients', '', '127.0.0.1', 'POST'),
+  getAllRecipes: event(),
+  getDailyRecipes: event('/api/recipes/daily'),
+  searchRecipes: event('/api/recipes/search', 'q=rice'),
+  getRecipeDetails: event('/api/recipes/7'),
+  getSimilarRecipes: event('/api/recipes/7/similar'),
+  getIngredients: event('/api/recipes/ingredients', '', '127.0.0.1', 'POST'),
 };
-samples.ingredients.headers['content-type'] = 'application/json';
-samples.ingredients.body = JSON.stringify({ sourceIds: [7] });
+samples.getIngredients.headers['content-type'] = 'application/json';
+samples.getIngredients.body = JSON.stringify({ sourceIds: [7] });
 for (const route of recipeRoutes) {
-  assert.equal(typeof bundled[route.handler], 'function');
-  const fixed = bundled.createRecipeHandler(route, localStore, undefined, localProviders);
-  const response = await fixed(samples[route.handler], context);
+  assert.equal(typeof bundled[route.group], 'function');
+  const fixed = bundled.createRecipeGroupHandler(
+    route.group,
+    localStore,
+    undefined,
+    localProviders,
+  );
+  const response = await fixed(samples[route.operation], context);
   assert.equal(response.statusCode, route.method === 'POST' ? 201 : 200);
   if (route === routes.detail) assert.equal(JSON.parse(response.body).summary, '<b>Safe</b>');
 }
 assert.equal(bundled.handler, undefined);
-console.info('Smoke de siete integraciones y exports fijos aprobado sin conexiones externas.');
+for (const removed of ['list', 'daily', 'search', 'similar'])
+  assert.equal(bundled[removed], undefined);
+console.info(
+  'Smoke de siete operaciones en cuatro exports por responsabilidad aprobado sin conexiones externas.',
+);
