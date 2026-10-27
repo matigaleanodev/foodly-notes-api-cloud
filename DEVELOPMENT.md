@@ -10,7 +10,7 @@ npm ci --ignore-scripts
 npm run check
 ```
 
-`check` runs lint, formatting, type checking, HTTP and isolated Mongo tests, then builds/smoke-tests the two Lambda bundles and local CDK assembly. The first test run downloads MongoDB 8.2.6 (about 123 MiB). Tests start their own ephemeral server on loopback and never use `MONGO_URI`, AWS credentials or recipe/translation providers. No Docker or existing database is needed. The server and its data are removed after the suite.
+`check` runs lint, formatting, type checking, HTTP and isolated Mongo tests, then generates OpenAPI and builds/smoke-tests the two Lambda bundles and local CDK assembly. The first test run downloads MongoDB 8.2.6 (about 123 MiB). Tests start their own ephemeral server on loopback and never use `MONGO_URI`, AWS credentials or recipe/translation providers. No Docker or existing database is needed. The server and its data are removed after the suite.
 
 The runtime exposes health and six recipe operations with existing contracts. CDK declares four Lambda groups: health; catalog (list/daily/search); detail (detail/similar); ingredients (batch). src/http/routes.ts defines method/path/group for both the stack and per-group operation selection. Middy retains HTTP middleware. Gateway has thirteen explicit GET/HEAD/POST routes, with no ANY, $default route or {proxy+}; it handles CORS/preflight.
 
@@ -29,6 +29,14 @@ Health now returns an array of independent HTTP configuration and Mongo ping che
 Public runtime access, Cloudflare visitor verification, production secret loading, Mongo networking and real ingredient latency measurements belong to the delivery stage. This runtime is not ready to receive production traffic.
 
 CORS is configured in HTTP API with explicit origins and exposed Retry-After/quota headers; preflight does not invoke Lambda. Unknown routes return Gateway’s own JSON; operation errors retain their JSON contract. Configuration and integration selection are tested locally; actual Gateway matching, CORS and pre-integration 404 responses are verified in stage 4. Size concurrency/pools across the four Lambda groups.
+
+`src/contracts/` defines neutral draft-07 schemas and types derived with `json-schema-to-ts` (type-only development dependency). Route metadata references inputs, responses for all seven operations, current error statuses and JSON, security, quota and Retry-After headers without importing handlers or runtime clients. Stored/daily/similar share a summary item with optional image; search requires string/null image. Detail retains optional/null metadata; ingredients retains order and arrays without lang or aggregation. Mappers use derived output types; parsing, normalization and defaults remain in runtime.
+
+AJV preserves the Middy flow order: ingredients body in `before`, before quotas; query/path inside the operation, after quotas, query before ID. Errors, counters, repeated parameters, extra fields, limits and HEAD remain unchanged; path parameters other than `id` and health/ingredients queries remain unvalidated. Tests check serialized JSON, statuses, headers and HEAD against contracts with simulated providers/ephemeral Mongo; no runtime response validation or Gateway payload/schema validators are added. Axios and package separation remain pending.
+
+`npm run openapi` generates `dist/openapi.json` (ignored and excluded from ZIPs). It uses [OpenAPI 3.1.1](https://spec.openapis.org/oas/v3.1.1.html#specifying-schema-dialects) with explicit draft-07 dialect, including the health tuple; consumers must support that dialect. It is neither imported into Gateway nor exposed through a documentation route. Tests compare all thirteen operations/statuses/schemas/headers with metadata and synthesized CloudFormation, retaining IAM/CORS/preflight. Errors before Lambda belong to Gateway and require AWS verification.
+
+Public parameters and body use HTTP input schemas (`httpInput`/`x-http-input`): numeric/decimal-string IDs depending on location, language before trim/lowercase and q before trimming; limits apply to the effective value. `request`/`x-canonical-request` retains the schemas AJV uses after normalization (stored-list limit50, effective language defaults to en). The body allows decimal strings and documents uniqueness after Number: standalone `uniqueItems` cannot detect `[1,"001"]`, which runtime rejects. Repeated/extra parameters, JSON16KiB and URL4096 retain existing controls. Common headers describe Lambda; Gateway adds CORS according to origin. Quota headers accompany success only, Retry-After accompanies 429/503 and HEAD retains status/headers without body.
 
 ## Organization and quality
 
