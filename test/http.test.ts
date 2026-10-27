@@ -17,11 +17,11 @@ describe('Contratos HTTP locales', () => {
     vi.restoreAllMocks();
   });
 
-  it('health responde sin URI Mongo, cuotas ni secretos y HEAD omite body', async () => {
-    const handler = createHealthHandler(env);
+  it('health valida configuración y Mongo sin cuotas ni proveedores y HEAD omite body', async () => {
+    const handler = createHealthHandler(env, { ping: async () => undefined });
     expect(await handler(event('/api/health'), context)).toMatchObject({
       statusCode: 200,
-      body: '{"status":"ok"}',
+      body: '[{"name":"configuration","status":"ok"},{"name":"mongo","status":"ok"}]',
       headers: { 'cache-control': 'no-store' },
     });
     expect(await handler(event('/api/health', '', '127.0.0.1', 'HEAD'), context)).toMatchObject({

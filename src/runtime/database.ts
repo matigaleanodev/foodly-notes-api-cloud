@@ -23,18 +23,21 @@ const counterSchema = new Schema<Counter>(
 counterSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0, name: 'security_counter_expiry' });
 
 /** Reutiliza la conexión Mongo por instancia; las operaciones reciben cancelación y no crean índices. */
-export function database(uri: () => string | undefined) {
+export function database(
+  uri: () => string | undefined | Promise<string | undefined>,
+  maxPoolSize = 4,
+) {
   let opening: Promise<Connection> | undefined;
   const connect = () => {
     opening ??= (async () => {
-      const value = uri();
+      const value = await uri();
       if (!value) throw new Error('MONGO_URI required.');
       const connection = createConnection(value, {
         autoIndex: false,
         autoCreate: false,
         bufferCommands: false,
         minPoolSize: 0,
-        maxPoolSize: 4,
+        maxPoolSize,
         maxIdleTimeMS: 60000,
         serverSelectionTimeoutMS: 2000,
         connectTimeoutMS: 2000,
@@ -88,6 +91,14 @@ export function database(uri: () => string | undefined) {
         .setOptions(options(signal))
         .lean<StoredRecipe[]>()
         .exec();
+    },
+
+    /** Comprueba conectividad/autenticación sin escribir ni consumir cuotas. */
+    async ping(signal: AbortSignal) {
+      signal.throwIfAborted();
+      const connection = await connect();
+      signal.throwIfAborted();
+      await connection.db!.command({ ping: 1 }, { signal, timeoutMS: 1500 });
     },
 
     async recipe(sourceId: number, signal: AbortSignal) {
