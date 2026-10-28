@@ -46,7 +46,7 @@ describe('Fundación personal de la candidata', () => {
     expect(JSON.stringify(scopes.cloudformation)).not.toContain('Request/ApiName');
     expect(JSON.stringify(scopes.cloudformation)).toContain('/apis/example');
     expect(JSON.stringify(githubTrust('test'))).toContain(
-      'repo:matigaleanodev/foodly-notes-api-cloud:environment:test',
+      'repo:matigaleanodev@99203645/foodly-notes-api-cloud@1434510465:environment:test',
     );
   });
 });
