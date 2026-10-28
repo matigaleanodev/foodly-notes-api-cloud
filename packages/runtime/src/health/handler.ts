@@ -18,7 +18,7 @@ export function createHealthHandler(
     globalLimit: 0,
   };
   return http(routes.health, middlewareConfig, async (_event, context) => {
-    const duration = Math.max(1, Math.min(2000, context.getRemainingTimeInMillis() - 500));
+    const duration = Math.max(1, Math.min(3000, context.getRemainingTimeInMillis() - 500));
     const checks = [
       {
         name: 'configuration',
