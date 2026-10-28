@@ -96,7 +96,10 @@ export function applicationPolicies(apiId = '*', bootstrap = true) {
       readAssets,
       allow(['cloudformation:ExecuteChangeSet'], [stackArn], {
         StringLike: {
-          'cloudformation:ChangeSetName': `arn:aws:cloudformation:us-east-1:650387442642:changeSet/${STACK}-*/*`,
+          'cloudformation:ChangeSetName': [
+            `arn:aws:cloudformation:us-east-1:650387442642:changeSet/${STACK}-*/*`,
+            `${STACK}-*`,
+          ],
         },
       }),
     ],
@@ -179,10 +182,12 @@ export function applicationPolicies(apiId = '*', bootstrap = true) {
           'apigateway:PUT',
           'apigateway:DELETE',
         ],
-        [
-          `arn:aws:apigateway:us-east-1::/apis/${apiId}`,
-          `arn:aws:apigateway:us-east-1::/apis/${apiId}/*`,
-        ],
+        apiId === '*'
+          ? ['arn:aws:apigateway:us-east-1::/apis/*']
+          : [
+              `arn:aws:apigateway:us-east-1::/apis/${apiId}`,
+              `arn:aws:apigateway:us-east-1::/apis/${apiId}/*`,
+            ],
       ),
       allow(
         ['apigateway:GET', 'apigateway:PUT', 'apigateway:DELETE'],

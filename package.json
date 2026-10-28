@@ -16,7 +16,7 @@
     "test:watch": "vitest",
     "build": "npm run build --workspace=@foodly-notes/runtime",
     "openapi": "npm run openapi --workspace=@foodly-notes/contracts",
-    "check": "npm run boundaries && npm run lint && npm run format:check && npm run typecheck && npm test && npm run openapi && npm run build && npm run synth:local",
+    "check": "npm run boundaries && npm run lint && npm run format:check && npm run typecheck && npm test && npm run openapi && npm run build && npm run synth:local && npm run synth:foundation && npm run prepare:access",
     "synth": "npm run synth --workspace=@foodly-notes/infrastructure --",
     "synth:foundation": "node packages/infrastructure/src/foundation-app.ts",
     "prepare:access": "node scripts/prepare-access.mjs",
