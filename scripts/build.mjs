@@ -46,18 +46,14 @@ for (const name of ['health', 'recipes']) {
   console.info(`${name}.zip: un único bundle, sin archivos locales privados.`);
 }
 
-const { event, context } = await import('../test/helpers.ts');
+const { event, context, env } = await import('../test/helpers.ts');
 const { createHealthHandler } = await import('../dist/health.mjs');
 const bundled = await import('../dist/recipes.mjs');
 const { routes, recipeRoutes } = await import('@foodly-notes/contracts/routes');
 const { default: assert } = await import('node:assert/strict');
 assert.equal(
-  (
-    await createHealthHandler(undefined, { ping: async () => undefined })(
-      event('/api/health'),
-      context,
-    )
-  ).statusCode,
+  (await createHealthHandler(env, { ping: async () => undefined })(event('/api/health'), context))
+    .statusCode,
   200,
 );
 const localStore = {
@@ -104,12 +100,7 @@ samples.getIngredients.headers['content-type'] = 'application/json';
 samples.getIngredients.body = JSON.stringify({ sourceIds: [7] });
 for (const route of recipeRoutes) {
   assert.equal(typeof bundled[route.group], 'function');
-  const fixed = bundled.createRecipeGroupHandler(
-    route.group,
-    localStore,
-    undefined,
-    localProviders,
-  );
+  const fixed = bundled.createRecipeGroupHandler(route.group, localStore, env, localProviders);
   const response = await fixed(samples[route.operation], context);
   assert.equal(response.statusCode, route.method === 'POST' ? 201 : 200);
   if (route === routes.detail) assert.equal(JSON.parse(response.body).summary, '<b>Safe</b>');
