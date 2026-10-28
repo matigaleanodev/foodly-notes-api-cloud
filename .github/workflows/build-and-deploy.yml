@@ -152,6 +152,10 @@ jobs:
             status=$(jq -r '.Stacks[0].StackStatus' prior-stack.json)
             case "$status" in
               CREATE_COMPLETE|UPDATE_COMPLETE|UPDATE_ROLLBACK_COMPLETE) ;;
+              REVIEW_IN_PROGRESS)
+                aws cloudformation describe-stack-resources --region us-east-1 --stack-name foodly-notes-api-cloud-test > prior-resources.json
+                jq -e '.StackResources | length == 0' prior-resources.json
+                ;;
               *) echo "Revisar recuperación del estado $status antes de preparar."; exit 1 ;;
             esac
           else

@@ -96,7 +96,10 @@ export function applicationPolicies(apiId = '*', bootstrap = true) {
       readAssets,
       allow(['cloudformation:ExecuteChangeSet'], [stackArn], {
         StringLike: {
-          'cloudformation:ChangeSetName': `arn:aws:cloudformation:us-east-1:650387442642:changeSet/${STACK}-*/*`,
+          'cloudformation:ChangeSetName': [
+            `arn:aws:cloudformation:us-east-1:650387442642:changeSet/${STACK}-*/*`,
+            `${STACK}-*`,
+          ],
         },
       }),
     ],
