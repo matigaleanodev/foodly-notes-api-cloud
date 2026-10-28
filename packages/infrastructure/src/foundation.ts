@@ -11,6 +11,8 @@ import {
 import { CfnRole } from 'aws-cdk-lib/aws-iam';
 import { CfnBucket, CfnBucketPolicy } from 'aws-cdk-lib/aws-s3';
 import { CfnSecret } from 'aws-cdk-lib/aws-secretsmanager';
+import { CfnCertificate } from 'aws-cdk-lib/aws-certificatemanager';
+import { CfnDomainName, CfnApiMapping } from 'aws-cdk-lib/aws-apigatewayv2';
 import type { Construct } from 'constructs';
 import { ACCOUNT, REGION } from './config.ts';
 import {
@@ -45,6 +47,39 @@ export class FoundationStack extends Stack {
       type: 'String',
       default: 'false',
       allowedValues: ['false', 'true'],
+    });
+    const domainEnabled = new CfnParameter(this, 'ProductionDomainEnabled', {
+      type: 'String',
+      default: 'false',
+      allowedValues: ['false', 'true'],
+    });
+    const domainCondition = new CfnCondition(this, 'ProductionDomain', {
+      expression: Fn.conditionEquals(domainEnabled.valueAsString, 'true'),
+    });
+    const certificate = new CfnCertificate(this, 'ApiCertificate', {
+      domainName: 'api.foodlynotes.app',
+      validationMethod: 'DNS',
+      tags: [{ key: 'Project', value: 'foodly-notes-api-cloud' }],
+    });
+    certificate.cfnOptions.condition = domainCondition;
+    certificate.applyRemovalPolicy(RemovalPolicy.RETAIN);
+    const domain = new CfnDomainName(this, 'ApiDomain', {
+      domainName: 'api.foodlynotes.app',
+      tags: { Project: 'foodly-notes-api-cloud' },
+      domainNameConfigurations: [
+        { certificateArn: certificate.ref, endpointType: 'REGIONAL', securityPolicy: 'TLS_1_2' },
+      ],
+    });
+    domain.cfnOptions.condition = domainCondition;
+    const mapping = new CfnApiMapping(this, 'ApiMapping', {
+      apiId: apiId.valueAsString,
+      domainName: domain.ref,
+      stage: '$default',
+    });
+    mapping.cfnOptions.condition = domainCondition;
+    new CfnOutput(this, 'ApiRegionalDomain', {
+      value: domain.attrRegionalDomainName,
+      condition: domainCondition,
     });
     const initial = new CfnCondition(this, 'RegionalApiBootstrap', {
       expression: Fn.conditionEquals(bootstrap.valueAsString, 'true'),
