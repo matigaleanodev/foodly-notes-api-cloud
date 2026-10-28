@@ -94,7 +94,34 @@ describe('Healthcheck independiente', () => {
     expect(ping).toHaveBeenCalledTimes(1);
   });
 
-  it('un check colgado termina a 2 s sin cambiar el resultado del otro', async () => {
+  it('admite la conexión cold IAM de más de 2 s sin cambiar el contrato health', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const pending = createHealthHandler(env, {
+      ping: async () => {
+        await new Promise<void>((resolve) => setTimeout(resolve, 2400));
+      },
+    })(event('/api/health'), context);
+    await vi.advanceTimersByTimeAsync(2400);
+    expect((await pending).statusCode).toBe(200);
+  });
+
+  it('cancela con margen de 500 ms aunque Lambda tenga menos tiempo disponible', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    let signal: AbortSignal | undefined;
+    const pending = createHealthHandler(env, {
+      ping: async (value) => {
+        signal = value;
+        await new Promise<void>(() => undefined);
+      },
+    })(event('/api/health'), { ...context, getRemainingTimeInMillis: () => 900 });
+    await vi.advanceTimersByTimeAsync(400);
+    expect((await pending).statusCode).toBe(503);
+    expect(signal?.aborted).toBe(true);
+  });
+
+  it('un check colgado termina a 3 s sin cambiar el resultado del otro', async () => {
     vi.useFakeTimers();
     vi.spyOn(console, 'info').mockImplementation(() => undefined);
     let signal: AbortSignal | undefined;
@@ -104,7 +131,7 @@ describe('Healthcheck independiente', () => {
         await new Promise<void>(() => undefined);
       },
     })(event('/api/health'), context);
-    await vi.advanceTimersByTimeAsync(2000);
+    await vi.advanceTimersByTimeAsync(3000);
     const response = await pending;
     expect(response.statusCode).toBe(503);
     expect(signal?.aborted).toBe(true);
