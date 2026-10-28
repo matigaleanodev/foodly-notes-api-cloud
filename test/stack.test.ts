@@ -19,12 +19,8 @@ describe('Stack CDK y API Gateway por responsabilidad', () => {
       template.resourceCountIs('AWS::SecretsManager::Secret', 0);
       template.resourceCountIs('AWS::EC2::VPC', 0);
       const functions = template.findResources('AWS::Lambda::Function');
-      expect(
-        Object.values(functions).reduce(
-          (sum, fn) => sum + fn.Properties.ReservedConcurrentExecutions,
-          0,
-        ),
-      ).toBe(6);
+      for (const fn of Object.values(functions))
+        expect(fn.Properties.ReservedConcurrentExecutions).toBeUndefined();
       for (const [name, group] of Object.entries({
         health: 'health',
         catalog: 'recipes',

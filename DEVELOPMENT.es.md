@@ -1,76 +1,58 @@
-# Desarrollo local
+# Desarrollo y entrega
 
 [English](DEVELOPMENT.md)
 
-Usar WSL/Linux con Node 24.22.1 (`.nvmrc`), Python 3 para crear ZIP y OpenSSL para certificados HTTPS efímeros de pruebas.
+Ejecutar los comandos desde la raíz con los requisitos y la instalación del [README](README.es.md).
 
-```sh
-nvm use
-npm ci --ignore-scripts
-npm run check
+## Estructura y comandos
+
+| Paquete                   | Responsabilidad                                                |
+| ------------------------- | -------------------------------------------------------------- |
+| `packages/infrastructure` | Stack CDK, parámetros de entrega y CLI.                        |
+| `packages/runtime`        | Handlers, Middy, servicios, Mongo y clientes externos.         |
+| `packages/contracts`      | Schemas, tipos derivados, rutas, OpenAPI y configuración pura. |
+
+Los paquetes usan exports explícitos de fuentes y un único `package-lock.json` raíz. Las herramientas compartidas y pruebas de integración están en la raíz. Infraestructura importa contratos sin cargar clientes runtime; se rechazan imports relativos entre paquetes.
+
+| Comando                                 | Función                                                                     |
+| --------------------------------------- | --------------------------------------------------------------------------- |
+| `npm run check`                         | Validación y empaquetado local completos.                                   |
+| `npm test` / `npm run test:watch`       | Pruebas aisladas con salida verbose.                                        |
+| `npm run typecheck`                     | Tipos estrictos por workspace y pruebas de integración.                     |
+| `npm run lint` / `npm run format:check` | Revisión de código y formato; `lint:fix` / `format` aplican correcciones.   |
+| `npm run openapi`                       | Generación de `dist/openapi.json` desde contratos.                          |
+| `npm run build`                         | Creación de `dist/health.zip` y `dist/recipes.zip` con smoke checks.        |
+| `npm run synth:local`                   | Síntesis y revisión de `cdk.out` con parámetros sintéticos, sin acceso AWS. |
+
+Cada ZIP contiene un bundle ESM. Health exporta `health.handler`; recipes exporta `recipes.catalog`, `recipes.detail` y `recipes.ingredients`. OpenAPI, pruebas y archivos locales/privados quedan fuera de los ZIP. La primera ejecución de pruebas Mongo descarga el binario del servidor efímero.
+
+## Configuración runtime
+
+`NODE_ENV` y `CORS_ORIGIN` configuran HTTP; producción exige orígenes explícitos. `RATE_LIMIT_PER_ROUTE` y `RATE_LIMIT_GLOBAL` configuran cuotas. Los parámetros de proveedores y presupuestos UTC están definidos en el [cliente de proveedores](packages/runtime/src/recipes/providers/client.ts).
+
+Lambda carga configuración mediante dos referencias a secretos:
+
+- `MONGO_SECRET_ARN`: JSON con `MONGO_URI`; health usa un usuario Mongo separado y de solo lectura.
+- `PROVIDER_SECRET_ARN`: JSON con `SPOONACULAR_API_KEY`, `AZURE_TRANSLATOR_KEY` y `AZURE_TRANSLATOR_REGION`; solo recetas.
+
+Los valores se cachean durante la vida de la instancia; reciclar funciones tras rotar secretos. Test configura `REAL_PROVIDERS_ENABLED=false`. HTTP externo usa HTTPS, sin redirects/retries, timeout de 30 s y límites de 256 KiB para request / 1 MiB descomprimido para response. Cada request tiene deadline de 27 s o tiempo Lambda restante menos 750 ms.
+
+## Entrega y recuperación
+
+La cuenta es `650387442642`, región `us-east-1`. Lambda usa salida administrada y conexión pública TLS a Atlas, con autenticación `MONGODB-AWS` y roles separados: health con lectura y recetas con lectura/escritura sobre su base. La base de validación contiene datos controlados y no copia datos productivos. No se crean VPC, NAT ni endpoints privados. La cuota regional de 10 se comparte con las otras funciones; no se configuran reservas. Se conservan throttle de Gateway, cuotas atómicas, presupuestos UTC y pools pequeños.
+
+`npm run prepare:access` genera los permisos administrativos iniciales en `dist/delivery-access.json` para un administrador autorizado. El ceiling externo no puede modificarse desde la fundación ni desde los roles de aplicación; no amplía los permisos de Architect. `npm run synth:foundation` sintetiza la fundación CDK sin assets ni bootstrap: bucket privado/versionado, tres referencias de configuración y cinco roles limitados. El [workflow de fundación](.github/workflows/foundation.yml) prepara, revisa y ejecuta su changeset. La primera creación permite administración regional HTTP API temporal; luego se restringe al `api_id` observado con `regional_bootstrap=false`.
+
+Los parámetros no sensibles `TEST_*` se validan en [infraestructura](packages/infrastructure/src/config.ts). `npm run build && npm run synth` produce la assembly y `node scripts/review-package.mjs cdk.out` la revisa. El [workflow build and deploy](.github/workflows/build-and-deploy.yml) exige el SHA completo de `dev` revisado, aprobación de esa revisión y comprobaciones de red/recuperación. OIDC separa preparar, ejecutar y CloudFormation. Los jobs conservan la misma assembly, lockfile, metadata referenciada y checksums por 30 días; verifican integridad y procedencia dentro del mismo run. Antes de ejecutar se comparan template, changeset vivo y bytes de los dos ZIP publicados. No se vuelve a sintetizar en preparación o ejecución.
+
+Los cambios ingresan por PR y CI requerida; el [workflow de merge](.github/workflows/merge.yml) integra el SHA revisado con la cuenta personal. Recuperar código mediante PR/CI y otro changeset revisado, conservando Mongo, contadores y presupuestos. `UPDATE_ROLLBACK_COMPLETE` permite una actualización; `ROLLBACK_COMPLETE` y estados incompletos requieren revisar eventos y recursos conservados antes de actuar. No se elimina ni recrea automáticamente una instalación fallida. Los artifacts retenidos permiten revisar la entrega anterior.
+
+Para recuperar datos, detener escrituras durante el respaldo consistente y usar Database Tools compatibles con la versión de Mongo. Guardar configuración sensible y archivo de respaldo bajo `Infrastructure/Secrets/`, ignorados y con permisos restringidos. Restaurar primero en una base vacía aislada:
+
+```bash
+mongodump --config /secure/source.yml --archive backup.archive.gz --gzip
+mongorestore --config /secure/destination.yml --archive backup.archive.gz --gzip \
+  --nsFrom 'source.*' --nsTo 'isolated_restore.*' --stopOnError
 ```
 
-`check` ejecuta lint, formato, tipos, pruebas HTTP y Mongo aislado, y después genera OpenAPI y genera/verifica los dos bundles y la assembly CDK local. La primera ejecución descarga MongoDB 8.2.6 (unos 123 MiB). Las pruebas inician su propio servidor efímero en loopback y nunca usan `MONGO_URI`, credenciales AWS ni proveedores de recetas/traducción. No requieren Docker ni una base existente. El servidor y sus datos se eliminan al terminar la suite.
-
-El runtime expone health y las seis operaciones de recetas, con contratos existentes. CDK declara cuatro Lambdas por responsabilidad: health; catalog (listado/daily/búsqueda); detail (detalle/similares); ingredients (lote). packages/contracts/src/routes.ts contiene método/ruta/grupo, usados tanto por el stack como por la selección de operación dentro de los grupos. Middy conserva los middleware HTTP. Gateway tiene trece rutas GET/HEAD/POST explícitas, sin ANY, ruta $default ni {proxy+}; resuelve CORS/preflight.
-
-Spoonacular y Azure están encapsulados en `packages/runtime/src/recipes/providers/client.ts`; las pruebas inyectan la función mínima `JsonHttpClient` de `packages/runtime/src/runtime/http-client.ts`. Su factory concentra todas las importaciones de Axios (versión exacta 1.21.0), usa solo el adaptador HTTP de Node y devuelve `unknown`; los schemas/AJV del proveedor validan el JSON antes del mapeo de dominio, incluidos envelopes daily/search y traducciones Azure. Los SDK oficiales AWS/Mongo siguen intactos. Configuración runtime: `SPOONACULAR_BASE_URL`, `SPOONACULAR_API_KEY`, `AZURE_TRANSLATOR_KEY`, `AZURE_TRANSLATOR_REGION` y `AZURE_TRANSLATOR_ENDPOINT` opcional. Presupuestos diarios UTC: `SPOONACULAR_DAILY_REQUEST_LIMIT=100` y `AZURE_DAILY_CHARACTER_LIMIT=50000`; concurrencia por instancia `PROVIDER_MAX_CONCURRENCY=4` (máximo 4). Sin redirects, reintentos automáticos ni fallback a fetch. Se conserva HTTPS/validación de destinos; se desactivan proxies de entorno. El timeout de Axios y la cancelación total por llamada son 30.000 ms, con respuesta máxima 1 MiB (incluido streaming descomprimido sin Content-Length) y request JSON máximo 256 KiB. Un tamaño declarado excesivo se rechaza antes de leer; los errores HTTP cierran el stream antes del parsing y conservan el mapeo 404. El parsing JSON es estricto, incluidas respuestas vacías o malformadas. Azure divide en lotes de 100 textos y hasta 50.000 caracteres por lote. La traducción fallida devuelve contenido base; búsqueda conserva la consulta original si no puede traducirla.
-
-El request dispone de hasta 27 s (o el tiempo Lambda restante menos 750 ms), con cancelación HTTP/DB y 503/Retry-After antes de Gateway; recipes declara 29 s. Ingredientes usa caché en lote, informationBulk y traducciones agrupadas, con hasta cuatro lotes Azure simultáneos. Reloj virtual: 20 recetas mínimas a 4.999 ms por llamada completan en 9.998 ms. Mongo efímero real: 20 recetas con 15 ingredientes únicos, 660 textos y proveedores simulados de 4.900 ms completan alrededor de 15 s. Son pruebas locales, sin latencia AWS/proveedores reales. El cambio deliberado de 5 s a 30 s permite completar una llamada de 6 s, pero retiene slots de concurrencia más tiempo y puede dejar menos margen para el fallback de traducción. Una operación bloqueada ahora alcanza el deadline global y devuelve 503/Retry-After en lugar del 502 temprano del proveedor; ni Axios ni streaming pueden extender los 27 s o el margen Lambda. Los intentos fallidos/cancelados conservan budgets UTC reservados. Los timeouts Lambda/Gateway no cambian. Contenido más amplio mantiene límites/deadline. [Entrega y límites](DELIVERY.es.md).
-
-Los errores de transporte emiten un evento estructurado `external_http_error` por intento, correlacionado mediante AsyncLocalStorage con el `x-request-id` HTTP existente. Máximo 2 KiB por evento: proveedor/operación/método, solo hostname (destinos IP redactados), estado, código normalizado, duración y causa de cancelación (`deadline`, `lambda_margin`, `axios_timeout`, `caller`). La allowlist incluye solo content type JSON, Retry-After numérico, parámetros seguros `number`/`addRecipeInformation`/`api-version`/`to` y resúmenes de bytes/cantidades/idioma. Nunca se serializan credenciales, paths/query crudos, identificadores, IPs, textos, motivos arbitrarios de cancelación ni objetos/mensajes de Axios. Un logger fallido se absorbe; el cierre HTTP conserva su evento de acceso separado, sin duplicar el error de transporte.
-
-`test/http-client.test.ts` ejercita el adaptador Node real contra HTTPS loopback aislado con certificado generado y confiado explícitamente (TLS continúa verificado). Cubre límites exactos de bytes, exceso sin longitud/gzip/Brotli, JSON inválido, redirects/estados/reset, logs seguros, fallback de traducción, cierre de socket, budgets/slots, éxito real de 6 s, timeout real de 30 s (inactivo y streaming), deadline global de 27 s y margen Lambda. Los certificados/claves son efímeros y se eliminan. Las suites de proveedor/dominio usan mocks JSON inyectables y Mongo efímero; estas comprobaciones no validan AWS, proveedores reales ni conectividad productiva.
-
-Health ahora devuelve un array de checks independientes de configuración HTTP y ping Mongo, cada uno con name/status. Un fallo no omite ni invalida los demás; 200 si todos pasan, 503/Retry-After si alguno falla. Cada check tiene hasta 2 s o el tiempo Lambda restante menos 500 ms. No escribe, no consulta proveedores ni consume cuotas. Health usa pool 1, recipes conserva pool 4. Este cambio reemplaza expresamente la respuesta de liveness anterior.
-
-`npm run build` genera dist/health.zip y dist/recipes.zip, cada uno con un bundle ESM. Las tres Lambdas de recetas comparten ZIP con exports catalog/detail/ingredients; health tiene handler propio. El smoke verifica las siete operaciones a través de cuatro exports. Status/contexto/tests/secretos/maps e infraestructura quedan excluidos por construcción.
-
-`packages/infrastructure/src/stack.ts` declara Lambdas, integraciones, rutas, logs y permisos de invocación directamente con CDK. `packages/infrastructure/src/config.ts` valida ARN/roles y subnets/SG existentes; no hace lookups ni lee secretos. Usa IAM para acceso de prueba, seis invocaciones activas agregadas y proveedores reales deshabilitados. Runtime conserva índices deshabilitados y carga secretos solo desde Lambda.
-
-`npm run synth:local` usa parámetros sintéticos de packages/infrastructure/src/local-settings.json, sintetiza CloudFormation y dos assets ZIP en cdk.out y revisa la assembly. No requiere cuenta/clave de otro servicio ni credenciales AWS reales. Para parámetros reales de test: configurar las variables no sensibles de DELIVERY y ejecutar npm run synth después del build. No ejecutar deploy/bootstrap sin cerrar IAM/red/costos y recuperación. El workflow manual build and deploy conserva la misma assembly revisada entre preparación y ejecución OIDC. [Entrega y límites](DELIVERY.es.md).
-
-El acceso público, la verificación del visitante Cloudflare, la carga de secretos productivos, la red de Mongo y las mediciones reales de ingredientes corresponden a la etapa de entrega. Este runtime todavía no está listo para recibir tráfico productivo.
-
-CORS se configura en HTTP API con orígenes explícitos y exposición de Retry-After/cuotas; el preflight no invoca Lambda. Las rutas inexistentes devuelven el JSON propio de Gateway; los errores de las operaciones preservan su contrato JSON. La configuración y selección de integración se prueban localmente; CORS, 404 previos a integración y matching real de Gateway se verifican en etapa 4. Dimensionar concurrencia/pools sobre los cuatro grupos Lambda.
-
-`packages/contracts/src/` define schemas draft-07 neutrales y tipos derivados con `json-schema-to-ts` (solo tipos, dependencia de desarrollo). La metadata de rutas referencia entradas, respuestas de las siete operaciones, estados de error actuales y headers JSON, seguridad, cuotas y Retry-After, sin importar handlers ni clientes runtime. Listado/daily/similares comparten el item de resumen con imagen opcional; búsqueda exige imagen string/null. Detalle conserva metadatos opcionales/null, ingredientes conserva orden y arrays sin lang ni agregación. Los mappers usan tipos de salida derivados; parsing, normalización y defaults permanecen en runtime.
-
-AJV conserva el orden del flujo Middy: body de ingredientes en `before`, antes de cuotas; query/path dentro de la operación, después de cuotas, query antes de ID. Se preservan errores, contadores, parámetros repetidos, extras, límites y HEAD; parámetros de path ajenos a `id` y queries de health/ingredientes siguen sin validarse. Las pruebas comprueban JSON serializado, estados, headers y HEAD contra los contratos, con proveedores simulados/Mongo efímero; no hay validación runtime de respuestas ni validadores de payload/schema en Gateway.
-
-`npm run openapi` genera `dist/openapi.json` (ignorado y fuera de ZIP). Usa [OpenAPI 3.1.1](https://spec.openapis.org/oas/v3.1.1.html#specifying-schema-dialects) con dialecto draft-07 explícito, incluida la tupla health; requiere tooling compatible con ese dialecto. No se importa en Gateway ni se publica una ruta de documentación. Las pruebas contrastan sus trece operaciones/estados/schemas/headers con metadata y CloudFormation sintetizado, sin cambiar IAM/CORS/preflight. Los errores anteriores a Lambda pertenecen a Gateway y requieren verificación en AWS.
-
-Los parámetros y body públicos usan schemas de entrada HTTP (`httpInput`/`x-http-input`): IDs number/string decimal según ubicación, idioma con trim/case y q antes de recortar; los límites se aplican al valor efectivo. `request`/`x-canonical-request` conserva los schemas usados por AJV después de normalizar (listado limit50, idioma efectivo en por omisión). El body permite strings decimales y documenta la unicidad después de Number: `uniqueItems` aislado no detecta `[1,"001"]`, que el runtime rechaza. Repetidos/extras, JSON16KiB y URL4096 siguen bajo los controles existentes. Los headers comunes descritos son de Lambda; CORS lo agrega Gateway según el origen. Los headers de cuota solo acompañan éxitos, Retry-After acompaña 429/503 y HEAD conserva estado/headers sin body.
-
-## Límites de los workspaces
-
-Tres npm workspaces privados comparten un único `package-lock.json` raíz; instalar desde la raíz con `npm ci --ignore-scripts`. No se publica ningún paquete. Node 24 ejecuta directamente los fuentes TypeScript de infraestructura/contratos; esbuild/Vitest transforman el runtime. Resolver paquetes no requiere declaraciones generadas ni builds previos.
-
-- `packages/infrastructure`: biblioteca CDK, constructs y CLI; declara recursos y valida parámetros de entrega. Solo importa exports explícitos de contratos, nunca handlers ni clientes de aplicación.
-- `packages/runtime`: health, recetas, middleware HTTP y clientes de aplicación. Declara directamente Middy, AJV, Axios, Mongoose, Secrets Manager, ipaddr.js y sanitize-html. Los cuatro grupos Lambda siguen generando dos ZIP.
-- `packages/contracts`: schemas neutrales, tipos derivados, metadata de rutas, OpenAPI y `configuration(env)` pura. La configuración recibe un mapa de entorno explícito; no depende de Node, inicializa clientes ni carga secretos. CDK y runtime reutilizan la validación existente. `json-schema-to-ts` es dependencia de desarrollo usada solo como tipo.
-
-La raíz coordina scripts y contiene herramientas compartidas de lint/formato/tipos/tests/build y pruebas de integración. AJV, Mongoose, CDK y tipos Lambda también son dependencias de desarrollo raíz porque esas pruebas los importan directamente; runtime/infraestructura igualmente declaran sus propias dependencias. Los exports de fuentes delimitan la API interna; se rechazan imports relativos entre paquetes. Las pruebas pueden inspeccionar internos desde la raíz.
-
-`npm run boundaries` comprueba imports directos declarados (incluidos tipos), direcciones permitidas, exports explícitos y exclusión de lockfiles locales. Los tests de grafos esbuild comprueban que CDK/OpenAPI/contratos no carguen clientes runtime; el build excluye infraestructura/tests/privados por sus inputs. `npm run typecheck` verifica cada workspace y las pruebas raíz. `npm run build`, `openapi`, `synth` y `synth:local` conservan sus entradas raíz y delegan al paquete responsable. CI mantiene el check requerido y sus permisos. La entrega invoca el CLI de infraestructura sobre la assembly restaurada, sin reconstruirla.
-
-## Organización y calidad
-
-`packages/runtime/src/health/` contiene su handler independiente. `packages/runtime/src/recipes/` agrupa handler, servicio, validación, mapeos, modelos y `providers/`. `packages/runtime/src/http/` reúne middleware y cuotas; `packages/runtime/src/runtime/` mantiene conexión/persistencia Mongo, SingleFlight, el cliente JSON Axios y el contexto de logs por request. Las entradas del build apuntan a `health/handler.ts` y `recipes/handler.ts`.
-
-- `npm run lint` valida código y JSDoc con Oxlint; `npm run lint:fix` aplica correcciones disponibles.
-- `npm run format:check` comprueba Prettier; `npm run format` aplica el formato. Ambos respetan `.gitignore`.
-- `npm test` y `npm run test:watch` usan Vitest con reporter verbose: muestran los nombres de los casos ejecutados.
-- `npm run check` exige lint, formato, tipos, tests, build y síntesis CDK local; el workflow de CI ya ejecuta ese comando.
-
-Formato: dos espacios, comillas simples, punto y coma, ancho 100 y LF. Separar métodos y funciones con una línea vacía, también en objetos; Prettier conserva la separación y Stylistic exige separación en clases y declaraciones de funciones. Evitar líneas vacías dentro de bloques que no aporten lectura.
-
-JSDoc en contratos públicos y operaciones cuyos límites, efectos, fallbacks o concurrencia no sean evidentes. Describir propósito y comportamiento relevante; usar `@param`, `@returns` y `@throws` cuando aporten información, sin repetir tipos de TypeScript. Los comentarios normales explican el porqué de una decisión, una restricción o un comportamiento poco evidente cerca del código. Ambos van en español y se actualizan con la implementación; evitar narrar cada instrucción.
-
-Versiones exactas y lockfile: última LTS donde el proyecto la publique; para paquetes sin LTS, última estable compatible y sin prereleases. Node y sus tipos permanecen en la misma línea LTS admitida por Lambda. Oxlint evita el peer incompatible de typescript-eslint con TypeScript 7; Stylistic se usa mediante el soporte de plugins JS de Oxlint. Una actualización no se considera lista hasta pasar `check`.
-
-## Integración del repositorio
-
-`dev` es la rama predeterminada de integración; los cambios revisados se promueven a `main` mediante PR. Ambas ramas exigen el check `repository` de GitHub Actions con base actualizada, conversaciones resueltas y merge commits; bloquean push directo, borrado y force push. No se requiere aprobación externa para este repositorio personal. Las ramas de trabajo usan `feat/`, `fix/` o `release/`.
-
-El workflow manual de merge recibe número de PR y SHA revisado, comprueba CI requerida y verifica a `matigaleanodev` como usuario real antes y después del merge. Se ejecuta desde una rama protegida y puede promover un PR de dev a main. GitHub aplica las protecciones vigentes al integrar. El workflow no ejecuta código del PR ni usa un token de App como fallback. Su environment `merge` admite solo `main`/`dev`; antes de usarlo se provisiona allí `MERGE_USER_TOKEN` y se activa `MERGE_WORKFLOW_ENABLED`. Estas credenciales son independientes del despliegue AWS.
+Comprobar claves, conteos, BSON/fechas, índices únicos y TTL de las cuatro colecciones; conservar los contadores vigentes sin reiniciarlos. Una recuperación sobre otra copia exige reconciliar las escrituras posteriores. La API original y EC2 siguen disponibles para el corte controlado de producción.

@@ -1,0 +1,141 @@
+name: Plan and apply candidate foundation
+on:
+  workflow_dispatch:
+    inputs:
+      reviewed_sha:
+        description: SHA completo de dev revisado
+        type: string
+        required: true
+      api_id:
+        description: API ID observado; unassigned solo durante la primera instalación
+        type: string
+        default: unassigned
+      regional_bootstrap:
+        description: Permiso regional temporal para crear la primera HTTP API
+        type: boolean
+        default: false
+permissions: {}
+concurrency:
+  group: foodly-notes-test-delivery
+  cancel-in-progress: false
+jobs:
+  foundation:
+    if: github.repository == 'matigaleanodev/foodly-notes-api-cloud' && github.ref == 'refs/heads/dev'
+    environment: foundation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: us-east-1
+      REVIEWED_SHA: ${{ inputs.reviewed_sha }}
+      APPROVED_SHA: ${{ vars.FOUNDATION_APPROVED_SHA }}
+      MONGO_HOST: ${{ vars.TEST_MONGO_HOST }}
+      API_ID: ${{ inputs.api_id }}
+      REGIONAL_BOOTSTRAP: ${{ inputs.regional_bootstrap }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify reviewed revision and parameters
+        run: |
+          set -euo pipefail
+          [[ "$REVIEWED_SHA" =~ ^[a-f0-9]{40}$ ]]
+          test "$GITHUB_SHA" = "$REVIEWED_SHA"
+          test "$APPROVED_SHA" = "$REVIEWED_SHA"
+          [[ "$MONGO_HOST" =~ ^[a-z0-9.-]+\.mongodb\.net$ ]]
+          [[ "$API_ID" =~ ^(unassigned|[a-z0-9]{1,20})$ ]]
+          if [[ "$REGIONAL_BOOTSTRAP" == false ]]; then test "$API_ID" != unassigned; fi
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Synthesize the reviewed foundation without AWS access
+        run: |
+          npm run synth:foundation
+          test "$(wc -c < cdk.foundation.out/FoodlyNotesFoundation.template.json)" -le 51200
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::650387442642:role/foodly-notes-test-foundation
+          aws-region: us-east-1
+          allowed-account-ids: '650387442642'
+          role-session-name: foodly-foundation-${{ github.run_id }}
+      - name: Prepare the exact foundation change set
+        id: plan
+        run: |
+          set -euo pipefail
+          identity=$(aws sts get-caller-identity --region us-east-1 --output json)
+          test "$(jq -r .Account <<< "$identity")" = 650387442642
+          [[ "$(jq -r .Arn <<< "$identity")" == arn:aws:sts::650387442642:assumed-role/foodly-notes-test-foundation/* ]]
+          stack=foodly-notes-api-cloud-test-foundation
+          if aws cloudformation describe-stacks --region us-east-1 --stack-name "$stack" > prior.json 2> prior-error.txt; then
+            status=$(jq -r '.Stacks[0].StackStatus' prior.json)
+            case "$status" in CREATE_COMPLETE|UPDATE_COMPLETE|UPDATE_ROLLBACK_COMPLETE) ;; *) echo "Revisar estado $status"; exit 1 ;; esac
+            kind=UPDATE
+          else
+            grep -q 'ValidationError.*Stack with id foodly-notes-api-cloud-test-foundation does not exist' prior-error.txt || { cat prior-error.txt; exit 1; }
+            kind=CREATE
+          fi
+          change_set="${stack}-${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          aws cloudformation create-change-set --region us-east-1 --stack-name "$stack" --change-set-name "$change_set" --change-set-type "$kind" --template-body file://cdk.foundation.out/FoodlyNotesFoundation.template.json --role-arn arn:aws:iam::650387442642:role/foodly-notes-test-foundation-cloudformation --capabilities CAPABILITY_NAMED_IAM --parameters "ParameterKey=MongoHost,ParameterValue=$MONGO_HOST" "ParameterKey=TestApiId,ParameterValue=$API_ID" "ParameterKey=AllowRegionalApiBootstrap,ParameterValue=$REGIONAL_BOOTSTRAP" > targets.json
+          stack_arn=$(jq -r .StackId targets.json)
+          changeset_arn=$(jq -r .Id targets.json)
+          aws cloudformation wait change-set-create-complete --region us-east-1 --stack-name "$stack_arn" --change-set-name "$changeset_arn"
+          aws cloudformation describe-change-set --region us-east-1 --stack-name "$stack_arn" --change-set-name "$changeset_arn" > foundation-review.json
+          aws cloudformation get-template --region us-east-1 --stack-name "$stack_arn" --change-set-name "$changeset_arn" --template-stage Original > prepared-template.json
+          python3 - <<'PY'
+          import json
+          change=json.load(open('foundation-review.json'))
+          assert change['Status']=='CREATE_COMPLETE' and change['ExecutionStatus']=='AVAILABLE' and not change.get('NextToken')
+          assert not change.get('ImportExistingResources') and not change.get('ParentChangeSetId')
+          assert change['Changes']
+          for item in change['Changes']:
+              resource=item['ResourceChange']
+              assert resource['ResourceType'] in ('AWS::IAM::Role','AWS::S3::Bucket','AWS::S3::BucketPolicy','AWS::SecretsManager::Secret')
+              assert resource['Action']!='Remove' and resource.get('Replacement') not in ('True','Conditional')
+          template=json.load(open('prepared-template.json'))['TemplateBody']
+          if isinstance(template,str): template=json.loads(template)
+          assert template==json.load(open('cdk.foundation.out/FoodlyNotesFoundation.template.json'))
+          PY
+          echo "stack=$stack_arn" >> "$GITHUB_OUTPUT"
+          echo "changeset=$changeset_arn" >> "$GITHUB_OUTPUT"
+          echo "kind=$kind" >> "$GITHUB_OUTPUT"
+          echo "checksum=$(sha256sum foundation-review.json | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Retain the reviewed template and receipt
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: foundation-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            cdk.foundation.out/
+            foundation-review.json
+            targets.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30
+      - name: Execute the same reviewed foundation
+        env:
+          STACK_ARN: ${{ steps.plan.outputs.stack }}
+          CHANGESET_ARN: ${{ steps.plan.outputs.changeset }}
+          KIND: ${{ steps.plan.outputs.kind }}
+          CHECKSUM: ${{ steps.plan.outputs.checksum }}
+        run: |
+          set -euo pipefail
+          identity=$(aws sts get-caller-identity --region us-east-1 --output json)
+          test "$(jq -r .Account <<< "$identity")" = 650387442642
+          [[ "$(jq -r .Arn <<< "$identity")" == arn:aws:sts::650387442642:assumed-role/foodly-notes-test-foundation/* ]]
+          aws cloudformation describe-change-set --region us-east-1 --stack-name "$STACK_ARN" --change-set-name "$CHANGESET_ARN" > live-review.json
+          test "$(sha256sum live-review.json | cut -d ' ' -f1)" = "$CHECKSUM"
+          aws cloudformation execute-change-set --region us-east-1 --stack-name "$STACK_ARN" --change-set-name "$CHANGESET_ARN" --client-request-token "github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          if [[ "$KIND" == CREATE ]]; then waiter=stack-create-complete; else waiter=stack-update-complete; fi
+          aws cloudformation wait "$waiter" --region us-east-1 --stack-name "$STACK_ARN"
+          aws cloudformation describe-stacks --region us-east-1 --stack-name "$STACK_ARN" --query 'Stacks[0].{Status:StackStatus,Outputs:Outputs}' > foundation-result.json
+          jq -e '.Status == "CREATE_COMPLETE" or .Status == "UPDATE_COMPLETE"' foundation-result.json
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: foundation-result-${{ github.run_id }}-${{ github.run_attempt }}
+          path: foundation-result.json
+          if-no-files-found: warn
+          retention-days: 30

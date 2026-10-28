@@ -2,9 +2,11 @@
 node_modules/
 dist/
 coverage/
+__pycache__/
 .serverless/
 .serverless-*/
 cdk.out/
+cdk.foundation.out/
 
 # Configuración privada
 .env
