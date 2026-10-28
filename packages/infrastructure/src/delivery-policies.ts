@@ -35,7 +35,7 @@ export const githubTrust = (environment: string) =>
       Condition: {
         StringEquals: {
           'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
-          'token.actions.githubusercontent.com:sub': `repo:matigaleanodev/foodly-notes-api-cloud:environment:${environment}`,
+          'token.actions.githubusercontent.com:sub': `repo:matigaleanodev@99203645/foodly-notes-api-cloud@1434510465:environment:${environment}`,
         },
       },
     },
