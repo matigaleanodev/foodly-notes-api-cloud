@@ -184,6 +184,8 @@ export function applicationPolicies(apiId = '*', bootstrap = true) {
           'apigateway:PATCH',
           'apigateway:PUT',
           'apigateway:DELETE',
+          // El proveedor CloudFormation de stage exige esta acción; su catálogo IAM está desfasado.
+          'apigateway:TagResource',
         ],
         apiId === '*'
           ? ['arn:aws:apigateway:us-east-1::/apis/*']
@@ -191,12 +193,6 @@ export function applicationPolicies(apiId = '*', bootstrap = true) {
               `arn:aws:apigateway:us-east-1::/apis/${apiId}`,
               `arn:aws:apigateway:us-east-1::/apis/${apiId}/*`,
             ],
-      ),
-      allow(
-        ['apigateway:GET', 'apigateway:PUT', 'apigateway:DELETE'],
-        [
-          `arn:aws:apigateway:us-east-1::/tags/arn%3Aaws%3Aapigateway%3Aus-east-1%3A%3A%2Fapis%2F${apiId}`,
-        ],
       ),
     ],
   };
