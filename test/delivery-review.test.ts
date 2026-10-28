@@ -84,4 +84,28 @@ rejected()
     const result = python('-c', source);
     expect(result.status, result.stderr).toBe(0);
   });
+  it('admite solo el permiso idéntico cuyo ARN depende de una actualización de código sin recreación', () => {
+    const source = `
+import copy, sys
+sys.path.insert(0, 'scripts')
+from review_changeset import stable_permission, STACK
+name = STACK + '-health'
+function = {'Type': 'AWS::Lambda::Function', 'Properties': {'FunctionName': name, 'Role': 'same-role', 'Code': {'S3Key': 'new.zip'}}}
+permission = {'Type': 'AWS::Lambda::Permission', 'Properties': {'FunctionName': {'Fn::GetAtt': ['healthFunction', 'Arn']}, 'Action': 'lambda:InvokeFunction', 'Principal': 'apigateway.amazonaws.com', 'SourceArn': 'same-api'}}
+template = {'Resources': {'healthFunction': function, 'healthPermission': permission}}
+prior = copy.deepcopy(template)
+prior['Resources']['healthFunction']['Properties']['Code']['S3Key'] = 'old.zip'
+function_change = {'ResourceChange': {'LogicalResourceId': 'healthFunction', 'Action': 'Modify', 'Replacement': 'False', 'PhysicalResourceId': name, 'Details': [{'Target': {'Attribute': 'Properties', 'Name': 'Code', 'RequiresRecreation': 'Never'}, 'Evaluation': 'Static', 'ChangeSource': 'DirectModification'}]}}
+resource = {'LogicalResourceId': 'healthPermission', 'ResourceType': 'AWS::Lambda::Permission', 'Action': 'Modify', 'Replacement': 'Conditional', 'Scope': ['Properties'], 'Details': [{'Target': {'Attribute': 'Properties', 'Name': 'FunctionName', 'RequiresRecreation': 'Always'}, 'Evaluation': 'Dynamic', 'ChangeSource': 'ResourceAttribute', 'CausingEntity': 'healthFunction.Arn'}]}
+assert stable_permission(resource, [function_change], template, prior)
+assert not stable_permission(resource, [function_change], template, None)
+for target, field, value in [(resource, 'Replacement', 'True'), (resource, 'Action', 'Remove'), (resource['Details'][0], 'CausingEntity', 'other.Arn'), (function_change['ResourceChange'], 'Replacement', 'Conditional'), (function['Properties'], 'FunctionName', STACK + '-other'), (function['Properties'], 'Role', 'another-role'), (permission['Properties'], 'SourceArn', 'another-api')]:
+    old = target[field]
+    target[field] = value
+    assert not stable_permission(resource, [function_change], template, prior), (field, value)
+    target[field] = old
+`;
+    const result = python('-c', source);
+    expect(result.status, result.stderr).toBe(0);
+  });
 });
