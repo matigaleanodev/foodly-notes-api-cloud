@@ -45,6 +45,11 @@ describe('Fundación personal de la candidata', () => {
     );
     expect(JSON.stringify(scopes.cloudformation)).not.toContain('Request/ApiName');
     expect(JSON.stringify(scopes.cloudformation)).toContain('/apis/example');
+    const api = scopes.cloudformation.find((s) => s.Action.includes('apigateway:TagResource'));
+    expect(api?.Resource).toEqual([
+      'arn:aws:apigateway:us-east-1::/apis/example',
+      'arn:aws:apigateway:us-east-1::/apis/example/*',
+    ]);
     expect(JSON.stringify(githubTrust('test'))).toContain(
       'repo:matigaleanodev@99203645/foodly-notes-api-cloud@1434510465:environment:test',
     );
