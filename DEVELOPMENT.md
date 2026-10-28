@@ -32,16 +32,16 @@ Each ZIP contains one ESM bundle. Health exports `health.handler`; recipes expor
 
 Lambda loads configuration through two secret references:
 
-- `MONGO_SECRET_ARN`: JSON containing `MONGO_URI`; health uses a separate read-only Mongo user.
+- `MONGO_SECRET_ARN`: JSON containing `MONGO_URI` and, for public access, `ORIGIN_VERIFY_SECRET` with at least 32 characters. Health uses a separate read-only Mongo user; recipes has read/write access to the same production database.
 - `PROVIDER_SECRET_ARN`: JSON containing `SPOONACULAR_API_KEY`, `AZURE_TRANSLATOR_KEY` and `AZURE_TRANSLATOR_REGION`; recipes only.
 
-Secret values are cached for the instance lifetime; recycle functions after rotation. Test sets `REAL_PROVIDERS_ENABLED=false`. External HTTP uses HTTPS, no redirects/retries, a 30-second timeout and 256 KiB request / 1 MiB decompressed response limits. Requests have a 27-second deadline or remaining Lambda time minus 750 ms.
+Secrets remain external to artifacts and Git. Do not switch databases or reset `securitycounters` during cutover or recovery. Secret values are cached for the instance lifetime; recycle functions after rotation. `PUBLIC_ACCESS_ENABLED=true` enables public routes and disables the execute-api endpoint. It requires `api.foodlynotes.app`, a Cloudflare source IP and the shared secret in `X-Foodly-Origin`, added by a Cloudflare rule scoped to that host. Only then is `CF-Connecting-IP` trusted; `X-Forwarded-For` is ignored. Without the flag, routes require AWS_IAM. `REAL_PROVIDERS_ENABLED=true` enables providers only with protected public access. External HTTP uses HTTPS, no redirects/retries, a 30-second timeout and 256 KiB request / 1 MiB decompressed response limits. Requests have a 27-second deadline or remaining Lambda time minus 750 ms.
 
 ## Delivery
 
 `TEST_*` parameters are defined in [infrastructure](packages/infrastructure/src/config.ts). HTTP API requires HTTP(S) origins; the Android client uses `https://localhost`. Mongo uses TLS and `MONGODB-AWS` authentication, with separate read access for health and read/write access for recipes.
 
-`npm run prepare:access` generates initial permissions in `dist/delivery-access.json`; `npm run synth:foundation` synthesizes the foundation. The [foundation workflow](.github/workflows/foundation.yml) configures the bucket, roles and secret references. `api_id` restricts management to one API; use `regional_bootstrap=true` only to create it, then disable it once the ID is available.
+`npm run prepare:access` generates initial permissions in `dist/delivery-access.json`; `npm run synth:foundation` synthesizes the foundation. The [foundation workflow](.github/workflows/foundation.yml) configures the bucket, roles and secret references. `production_domain=true` prepares ACM DNS, the regional TLS domain and its mapping; `certificate_arn` reuses an existing Foodly certificate. Publish its validation CNAME without proxying. Change the `api` CNAME separately, retaining the Cloudflare proxy and Full (strict) TLS. `api_id` restricts management to one API; use `regional_bootstrap=true` only to create it, then disable it once the ID is available.
 
 The [build and deploy workflow](.github/workflows/build-and-deploy.yml) takes a reviewed `dev` SHA as `reviewed_sha`, publishes assets and preserves the same reviewed assembly between preparation and execution using OIDC and checksums. Changes enter through PRs, CI and the [merge workflow](.github/workflows/merge.yml).
 
@@ -58,3 +58,7 @@ mongorestore --config /secure/destination.yml --archive backup.archive.gz --gzip
 ```
 
 Verify documents, dates, unique indexes and TTL indexes; preserve counters and reconcile subsequent writes before using the copy.
+
+## Traffic recovery
+
+Restore the `api` CNAME for the `shared-ec2-ingress` tunnel with proxying enabled to keep client URLs and return traffic to NestJS on EC2. Keep the tunnel, original container and its credentials operational. Both implementations use the same database, caches and UTC counters: never copy fixtures or restore snapshots over the active database. Do not mirror requests to both APIs.

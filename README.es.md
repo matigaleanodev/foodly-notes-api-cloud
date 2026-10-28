@@ -24,7 +24,7 @@ Cuatro grupos Lambda —health, catalog, detail e ingredients— comparten dos Z
 | GET    | `/api/recipes/{id}/similar` | 200 · recetas similares                 |
 | POST   | `/api/recipes/ingredients`  | 201 · ingredientes por receta           |
 
-Las rutas GET también admiten HEAD sin body. JSON Schema y AJV validan entradas de aplicación; OpenAPI se genera desde los contratos compartidos. Las recetas admiten `en/es`, ingredientes acepta hasta 20 IDs únicos y los errores conservan estados controlados y Retry-After cuando corresponde. Gateway resuelve CORS/preflight; las rutas de test usan AWS_IAM.
+Las rutas GET también admiten HEAD sin body. JSON Schema y AJV validan entradas de aplicación; OpenAPI se genera desde los contratos compartidos. Las recetas admiten `en/es`, ingredientes acepta hasta 20 IDs únicos y los errores conservan estados controlados y Retry-After cuando corresponde. La URL pública es `https://api.foodlynotes.app/api`. Gateway resuelve CORS/preflight; el acceso público exige Cloudflare y un secreto de origen, con cuotas por visitante verificado. El modo privado usa AWS_IAM.
 
 ## Desarrollo local
 
