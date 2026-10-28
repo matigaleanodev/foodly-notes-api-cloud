@@ -56,18 +56,37 @@ export class FoundationStack extends Stack {
     const domainCondition = new CfnCondition(this, 'ProductionDomain', {
       expression: Fn.conditionEquals(domainEnabled.valueAsString, 'true'),
     });
+    const certificateArn = new CfnParameter(this, 'CertificateArn', {
+      type: 'String',
+      default: '',
+      allowedPattern: '^$|arn:aws:acm:us-east-1:650387442642:certificate/[a-f0-9-]+',
+    });
+    const createCertificate = new CfnCondition(this, 'CreateCertificate', {
+      expression: Fn.conditionAnd(
+        domainCondition,
+        Fn.conditionEquals(certificateArn.valueAsString, ''),
+      ),
+    });
     const certificate = new CfnCertificate(this, 'ApiCertificate', {
       domainName: 'api.foodlynotes.app',
       validationMethod: 'DNS',
       tags: [{ key: 'Project', value: 'foodly-notes-api-cloud' }],
     });
-    certificate.cfnOptions.condition = domainCondition;
+    certificate.cfnOptions.condition = createCertificate;
     certificate.applyRemovalPolicy(RemovalPolicy.RETAIN);
     const domain = new CfnDomainName(this, 'ApiDomain', {
       domainName: 'api.foodlynotes.app',
       tags: { Project: 'foodly-notes-api-cloud' },
       domainNameConfigurations: [
-        { certificateArn: certificate.ref, endpointType: 'REGIONAL', securityPolicy: 'TLS_1_2' },
+        {
+          certificateArn: Fn.conditionIf(
+            createCertificate.logicalId,
+            certificate.ref,
+            certificateArn.valueAsString,
+          ).toString(),
+          endpointType: 'REGIONAL',
+          securityPolicy: 'TLS_1_2',
+        },
       ],
     });
     domain.cfnOptions.condition = domainCondition;

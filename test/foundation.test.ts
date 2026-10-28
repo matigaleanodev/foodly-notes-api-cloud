@@ -32,7 +32,8 @@ describe('Fundación personal de la candidata', () => {
     expect(template.Parameters.ProductionDomainEnabled.Default).toBe('false');
     expect(template.Resources.ApiCertificate.Properties.DomainName).toBe('api.foodlynotes.app');
     expect(template.Resources.ApiCertificate.DeletionPolicy).toBe('Retain');
-    for (const id of ['ApiCertificate', 'ApiDomain', 'ApiMapping'])
+    expect(template.Resources.ApiCertificate.Condition).toBe('CreateCertificate');
+    for (const id of ['ApiDomain', 'ApiMapping'])
       expect(template.Resources[id].Condition).toBe('ProductionDomain');
     expect(template.Resources.ApiMapping.Properties).toEqual({
       ApiId: { Ref: 'TestApiId' },
