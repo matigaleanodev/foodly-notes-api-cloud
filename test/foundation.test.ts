@@ -29,6 +29,16 @@ describe('Fundación personal de la candidata', () => {
         .every((r) => r.DeletionPolicy === 'Retain'),
     ).toBe(true);
     expect(template.Parameters.AllowRegionalApiBootstrap.Default).toBe('false');
+    expect(template.Parameters.ProductionDomainEnabled.Default).toBe('false');
+    expect(template.Resources.ApiCertificate.Properties.DomainName).toBe('api.foodlynotes.app');
+    expect(template.Resources.ApiCertificate.DeletionPolicy).toBe('Retain');
+    for (const id of ['ApiCertificate', 'ApiDomain', 'ApiMapping'])
+      expect(template.Resources[id].Condition).toBe('ProductionDomain');
+    expect(template.Resources.ApiMapping.Properties).toEqual({
+      ApiId: { Ref: 'TestApiId' },
+      DomainName: { Ref: 'ApiDomain' },
+      Stage: '$default',
+    });
     expect(JSON.stringify(template)).not.toMatch(
       /AWS::EC2::|AWS::DynamoDB::|portfolio|resolve:secretsmanager/,
     );

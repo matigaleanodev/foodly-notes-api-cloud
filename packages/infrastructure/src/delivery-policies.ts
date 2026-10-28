@@ -201,6 +201,36 @@ export function applicationPolicies(apiId = '*', bootstrap = true) {
 export function foundationPolicy() {
   const roles = Object.keys(applicationPolicies()).map(roleArn);
   return policy([
+    allow(['acm:RequestCertificate'], ['*'], {
+      StringEquals: { 'aws:RequestedRegion': 'us-east-1', 'acm:ValidationMethod': 'DNS' },
+      'ForAllValues:StringEquals': { 'acm:DomainNames': ['api.foodlynotes.app'] },
+    }),
+    allow(
+      [
+        'acm:DescribeCertificate',
+        'acm:AddTagsToCertificate',
+        'acm:ListTagsForCertificate',
+        'acm:RemoveTagsFromCertificate',
+      ],
+      ['arn:aws:acm:us-east-1:650387442642:certificate/*'],
+    ),
+    allow(['apigateway:POST'], ['arn:aws:apigateway:us-east-1::/domainnames'], {
+      StringEquals: { 'aws:RequestTag/Project': 'foodly-notes-api-cloud' },
+      'ForAllValues:StringEquals': { 'apigateway:Request/EndpointType': ['REGIONAL'] },
+    }),
+    allow(
+      [
+        'apigateway:GET',
+        'apigateway:POST',
+        'apigateway:PATCH',
+        'apigateway:DELETE',
+        'apigateway:TagResource',
+      ],
+      [
+        'arn:aws:apigateway:us-east-1::/domainnames/api.foodlynotes.app',
+        'arn:aws:apigateway:us-east-1::/domainnames/api.foodlynotes.app/*',
+      ],
+    ),
     allow(['iam:CreateRole', 'iam:PutRolePermissionsBoundary'], roles, {
       StringEquals: { 'iam:PermissionsBoundary': CEILING },
     }),

@@ -10,6 +10,10 @@ on:
         description: API ID observado; unassigned solo durante la primera instalación
         type: string
         default: unassigned
+      production_domain:
+        description: Preparar TLS y dominio Foodly sin modificar DNS productivo
+        type: boolean
+        default: false
       regional_bootstrap:
         description: Permiso regional temporal para crear la primera HTTP API
         type: boolean
@@ -34,6 +38,7 @@ jobs:
       MONGO_HOST: ${{ vars.TEST_MONGO_HOST }}
       API_ID: ${{ inputs.api_id }}
       REGIONAL_BOOTSTRAP: ${{ inputs.regional_bootstrap }}
+      PRODUCTION_DOMAIN: ${{ inputs.production_domain }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -79,7 +84,7 @@ jobs:
             kind=CREATE
           fi
           change_set="${stack}-${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          aws cloudformation create-change-set --region us-east-1 --stack-name "$stack" --change-set-name "$change_set" --change-set-type "$kind" --template-body file://cdk.foundation.out/FoodlyNotesFoundation.template.json --role-arn arn:aws:iam::650387442642:role/foodly-notes-test-foundation-cloudformation --capabilities CAPABILITY_NAMED_IAM --parameters "ParameterKey=MongoHost,ParameterValue=$MONGO_HOST" "ParameterKey=TestApiId,ParameterValue=$API_ID" "ParameterKey=AllowRegionalApiBootstrap,ParameterValue=$REGIONAL_BOOTSTRAP" > targets.json
+          aws cloudformation create-change-set --region us-east-1 --stack-name "$stack" --change-set-name "$change_set" --change-set-type "$kind" --template-body file://cdk.foundation.out/FoodlyNotesFoundation.template.json --role-arn arn:aws:iam::650387442642:role/foodly-notes-test-foundation-cloudformation --capabilities CAPABILITY_NAMED_IAM --parameters "ParameterKey=MongoHost,ParameterValue=$MONGO_HOST" "ParameterKey=TestApiId,ParameterValue=$API_ID" "ParameterKey=AllowRegionalApiBootstrap,ParameterValue=$REGIONAL_BOOTSTRAP" "ParameterKey=ProductionDomainEnabled,ParameterValue=$PRODUCTION_DOMAIN" > targets.json
           stack_arn=$(jq -r .StackId targets.json)
           changeset_arn=$(jq -r .Id targets.json)
           aws cloudformation wait change-set-create-complete --region us-east-1 --stack-name "$stack_arn" --change-set-name "$changeset_arn"
@@ -93,7 +98,7 @@ jobs:
           assert change['Changes']
           for item in change['Changes']:
               resource=item['ResourceChange']
-              assert resource['ResourceType'] in ('AWS::IAM::Role','AWS::S3::Bucket','AWS::S3::BucketPolicy','AWS::SecretsManager::Secret')
+              assert resource['ResourceType'] in ('AWS::IAM::Role','AWS::S3::Bucket','AWS::S3::BucketPolicy','AWS::SecretsManager::Secret','AWS::CertificateManager::Certificate','AWS::ApiGatewayV2::DomainName','AWS::ApiGatewayV2::ApiMapping')
               assert resource['Action']!='Remove' and resource.get('Replacement') not in ('True','Conditional')
           template=json.load(open('prepared-template.json'))['TemplateBody']
           if isinstance(template,str): template=json.loads(template)
