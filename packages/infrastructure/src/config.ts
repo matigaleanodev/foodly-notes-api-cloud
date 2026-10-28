@@ -29,10 +29,6 @@ export function deploymentConfiguration(env: NodeJS.ProcessEnv) {
     healthRoleArn: role('TEST_HEALTH_ROLE_ARN'),
     recipesRoleArn: role('TEST_RECIPES_ROLE_ARN'),
     deploymentBucket: required('TEST_DEPLOYMENT_BUCKET', /^foodly-notes-test-[a-z0-9-]+$/),
-    subnetIds: required('TEST_SUBNET_IDS', /^subnet-[a-f0-9]+(?:,subnet-[a-f0-9]+)+$/).split(','),
-    securityGroupIds: required('TEST_SECURITY_GROUP_IDS', /^sg-[a-f0-9]+(?:,sg-[a-f0-9]+)*$/).split(
-      ',',
-    ),
     origins: configuration({ NODE_ENV: 'production', CORS_ORIGIN: env.TEST_CORS_ORIGIN }).origins,
   };
 }

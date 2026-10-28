@@ -11,6 +11,7 @@ const allowed = {
   runtime: new Set([
     contractName,
     '@aws-sdk/client-secrets-manager',
+    '@aws-sdk/credential-providers',
     '@middy/core',
     'ajv',
     'axios',
@@ -101,10 +102,14 @@ for (const owner of Object.keys(allowed)) {
   const directory = resolve(root, 'packages', owner);
   const manifest = JSON.parse(await readFile(resolve(directory, 'package.json'), 'utf8'));
   assert.equal(manifest.private, true);
+  assert.equal(manifest.version, contractManifest.version);
   assert.ok(!('scripts' in manifest) || !('prepare' in manifest.scripts));
   for (const [name, version] of Object.entries(manifest.dependencies ?? {})) {
     assert.ok(allowed[owner].has(name), `Dependencia fuera del límite: ${owner}: ${name}`);
-    assert.match(version, /^\d+\.\d+\.\d+$/, 'Conservar versiones exactas.');
+    if (name.startsWith('@foodly-notes/')) {
+      assert.match(version, /^\d+\.\d+\.\d+(?:-rc\.[1-9]\d*)?$/, 'Conservar versiones exactas.');
+      assert.equal(version, contractManifest.version);
+    } else assert.match(version, /^\d+\.\d+\.\d+$/, 'Conservar versiones exactas.');
   }
   assert.equal(
     (await files(directory)).some((path) => path.endsWith('package-lock.json')),

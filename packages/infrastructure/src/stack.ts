@@ -87,11 +87,9 @@ export class FoodlyNotesStack extends Stack {
         architectures: ['arm64'],
         memorySize: 256,
         timeout: health ? 4 : 29,
-        reservedConcurrentExecutions: name === 'catalog' || name === 'detail' ? 2 : 1,
         role: health ? config.healthRoleArn : config.recipesRoleArn,
         code: { s3Bucket: file.s3BucketName, s3Key: file.s3ObjectKey },
         loggingConfig: { logGroup: logs.ref },
-        vpcConfig: { subnetIds: config.subnetIds, securityGroupIds: config.securityGroupIds },
         environment: {
           variables: {
             NODE_ENV: 'production',

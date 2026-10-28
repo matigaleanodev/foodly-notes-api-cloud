@@ -1,6 +1,6 @@
 {
   "name": "foodly-notes-api-cloud",
-  "version": "0.1.0",
+  "version": "1.0.0-rc.1",
   "private": true,
   "type": "module",
   "engines": {
@@ -18,13 +18,15 @@
     "openapi": "npm run openapi --workspace=@foodly-notes/contracts",
     "check": "npm run boundaries && npm run lint && npm run format:check && npm run typecheck && npm test && npm run openapi && npm run build && npm run synth:local",
     "synth": "npm run synth --workspace=@foodly-notes/infrastructure --",
+    "synth:foundation": "node packages/infrastructure/src/foundation-app.ts",
+    "prepare:access": "node scripts/prepare-access.mjs",
     "synth:local": "node scripts/synth-local.mjs",
     "boundaries": "node scripts/check-boundaries.mjs"
   },
   "devDependencies": {
-    "@foodly-notes/contracts": "0.1.0",
-    "@foodly-notes/infrastructure": "0.1.0",
-    "@foodly-notes/runtime": "0.1.0",
+    "@foodly-notes/contracts": "1.0.0-rc.1",
+    "@foodly-notes/infrastructure": "1.0.0-rc.1",
+    "@foodly-notes/runtime": "1.0.0-rc.1",
     "@stylistic/eslint-plugin": "5.10.0",
     "@types/aws-lambda": "8.10.164",
     "@types/node": "24.19.2",

@@ -98,13 +98,8 @@ for (const fn of ofType('AWS::Lambda::Function')) {
   assert.ok(fn.Properties.Timeout <= 29);
   assert.match(fn.Properties.Role, /^arn:aws:iam::650387442642:role\/foodly-notes-test-/);
 }
-assert.equal(
-  ofType('AWS::Lambda::Function').reduce(
-    (sum, fn) => sum + fn.Properties.ReservedConcurrentExecutions,
-    0,
-  ),
-  6,
-);
+for (const fn of ofType('AWS::Lambda::Function'))
+  assert.equal(fn.Properties.ReservedConcurrentExecutions, undefined);
 assert.equal(ofType('AWS::ApiGatewayV2::Stage').length, 1);
 assert.deepEqual(ofType('AWS::ApiGatewayV2::Stage')[0].Properties.DefaultRouteSettings, {
   ThrottlingBurstLimit: 6,
