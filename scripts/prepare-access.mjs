@@ -21,7 +21,15 @@ const access = {
       ...new Map(
         Object.values(applicationPolicies(process.argv[2] ?? '*'))
           .flat()
-          .map((statement) => [JSON.stringify(statement), statement]),
+          .map((statement) => {
+            const bounded = statement.Action.includes('lambda:CreateFunction')
+              ? {
+                  ...statement,
+                  Resource: [`arn:aws:lambda:us-east-1:650387442642:function:${STACK}-*`],
+                }
+              : statement;
+            return [JSON.stringify(bounded), bounded];
+          }),
       ).values(),
     ]),
   },

@@ -65,11 +65,7 @@ describe('Stack CDK y API Gateway por responsabilidad', () => {
       expect(byKey['POST /api/recipes/ingredients']).not.toEqual(byKey['GET /api/recipes/{id}']);
       template.hasResourceProperties('AWS::ApiGatewayV2::Api', {
         CorsConfiguration: {
-          AllowOrigins: [
-            'https://test.foodlynotes.app',
-            'capacitor://localhost',
-            'http://localhost',
-          ],
+          AllowOrigins: ['https://test.foodlynotes.app', 'https://localhost', 'http://localhost'],
           AllowMethods: ['GET', 'HEAD', 'POST', 'OPTIONS'],
           MaxAge: 600,
           AllowCredentials: false,
@@ -83,7 +79,7 @@ describe('Stack CDK y API Gateway por responsabilidad', () => {
         Environment: {
           Variables: {
             NODE_ENV: 'production',
-            CORS_ORIGIN: 'https://test.foodlynotes.app,capacitor://localhost,http://localhost',
+            CORS_ORIGIN: 'https://test.foodlynotes.app,https://localhost,http://localhost',
             MONGO_SECRET_ARN:
               'arn:aws:secretsmanager:us-east-1:650387442642:secret:foodly-notes/test/mongo-health-Ab1234',
           },
