@@ -17,6 +17,10 @@ describe('Preparación local de entrega', () => {
       deploymentConfiguration({ ...settings, TEST_CORS_ORIGIN: 'capacitor://localhost' }),
     ).toThrow('HTTP API requires HTTP(S) CORS origins.');
     expect(deploymentConfiguration(settings).origins).toContain('https://localhost');
+    expect(() => deploymentConfiguration({ ...settings, PUBLIC_ACCESS_ENABLED: 'yes' })).toThrow();
+    expect(() =>
+      deploymentConfiguration({ ...settings, REAL_PROVIDERS_ENABLED: 'true' }),
+    ).toThrow();
   });
 
   it('carga secretos una vez en runtime, permite solo campos declarados y no altera process.env', async () => {

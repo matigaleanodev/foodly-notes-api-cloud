@@ -47,6 +47,7 @@ export class FoodlyNotesStack extends Stack {
     const api = new CfnApi(this, 'Api', {
       name: STACK_NAME,
       protocolType: 'HTTP',
+      disableExecuteApiEndpoint: config.publicAccess,
       corsConfiguration: {
         allowOrigins: config.origins,
         allowMethods: ['GET', 'HEAD', 'POST', 'OPTIONS'],
@@ -94,6 +95,7 @@ export class FoodlyNotesStack extends Stack {
           variables: {
             NODE_ENV: 'production',
             CORS_ORIGIN: config.origins.join(','),
+            ...(config.publicAccess ? { PUBLIC_ACCESS_ENABLED: 'true' } : {}),
             MONGO_SECRET_ARN: health ? config.healthMongoSecretArn : config.mongoSecretArn,
             ...(health
               ? {}
@@ -103,7 +105,7 @@ export class FoodlyNotesStack extends Stack {
                   SPOONACULAR_DAILY_REQUEST_LIMIT: '100',
                   AZURE_DAILY_CHARACTER_LIMIT: '50000',
                   PROVIDER_MAX_CONCURRENCY: '4',
-                  REAL_PROVIDERS_ENABLED: 'false',
+                  REAL_PROVIDERS_ENABLED: String(config.realProviders),
                 }),
           },
         },
@@ -129,7 +131,7 @@ export class FoodlyNotesStack extends Stack {
           apiId: api.ref,
           routeKey: `${method} ${route.path}`,
           target: `integrations/${integrations[route.group]!.ref}`,
-          authorizationType: 'AWS_IAM',
+          authorizationType: config.publicAccess ? 'NONE' : 'AWS_IAM',
         });
       }
     }

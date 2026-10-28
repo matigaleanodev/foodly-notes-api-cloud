@@ -88,7 +88,7 @@ rejected()
     const source = `
 import copy, sys
 sys.path.insert(0, 'scripts')
-from review_changeset import stable_permission, STACK
+from review_changeset import stable_permission, STACK, PRODUCTION_ORIGINS
 name = STACK + '-health'
 function = {'Type': 'AWS::Lambda::Function', 'Properties': {'FunctionName': name, 'Role': 'same-role', 'Code': {'S3Key': 'new.zip'}}}
 permission = {'Type': 'AWS::Lambda::Permission', 'Properties': {'FunctionName': {'Fn::GetAtt': ['healthFunction', 'Arn']}, 'Action': 'lambda:InvokeFunction', 'Principal': 'apigateway.amazonaws.com', 'SourceArn': 'same-api'}}
@@ -99,6 +99,17 @@ function_change = {'ResourceChange': {'LogicalResourceId': 'healthFunction', 'Ac
 resource = {'LogicalResourceId': 'healthPermission', 'ResourceType': 'AWS::Lambda::Permission', 'Action': 'Modify', 'Replacement': 'Conditional', 'Scope': ['Properties'], 'Details': [{'Target': {'Attribute': 'Properties', 'Name': 'FunctionName', 'RequiresRecreation': 'Always'}, 'Evaluation': 'Dynamic', 'ChangeSource': 'ResourceAttribute', 'CausingEntity': 'healthFunction.Arn'}]}
 assert stable_permission(resource, [function_change], template, prior)
 assert not stable_permission(resource, [function_change], template, None)
+function['Properties']['Environment'] = {'Variables': {'PUBLIC_ACCESS_ENABLED': 'true', 'CORS_ORIGIN': PRODUCTION_ORIGINS}}
+function_change['ResourceChange']['Details'].append({'Target': {'Attribute': 'Properties', 'Name': 'Environment', 'RequiresRecreation': 'Never'}, 'Evaluation': 'Static', 'ChangeSource': 'DirectModification'})
+assert stable_permission(resource, [function_change], template, prior)
+for key, value in [('MONGO_SECRET_ARN', 'another-secret'), ('CORS_ORIGIN', '*'), ('PUBLIC_ACCESS_ENABLED', 'false')]:
+    variables = function['Properties']['Environment']['Variables']
+    old = variables.get(key)
+    variables[key] = value
+    assert not stable_permission(resource, [function_change], template, prior)
+    if old is None: del variables[key]
+    else: variables[key] = old
+
 for target, field, value in [(resource, 'Replacement', 'True'), (resource, 'Action', 'Remove'), (resource['Details'][0], 'CausingEntity', 'other.Arn'), (function_change['ResourceChange'], 'Replacement', 'Conditional'), (function['Properties'], 'FunctionName', STACK + '-other'), (function['Properties'], 'Role', 'another-role'), (permission['Properties'], 'SourceArn', 'another-api')]:
     old = target[field]
     target[field] = value

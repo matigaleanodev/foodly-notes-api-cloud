@@ -18,7 +18,13 @@ export function runtimeEnvironment(env: NodeJS.ProcessEnv, read: SecretReader = 
     pending ??= (async () => {
       const result = { ...env };
       const secrets = [
-        { arn: env.MONGO_SECRET_ARN, fields: ['MONGO_URI'] },
+        {
+          arn: env.MONGO_SECRET_ARN,
+          fields: [
+            'MONGO_URI',
+            ...(env.PUBLIC_ACCESS_ENABLED === 'true' ? ['ORIGIN_VERIFY_SECRET'] : []),
+          ],
+        },
         {
           arn: env.PROVIDER_SECRET_ARN,
           fields: ['SPOONACULAR_API_KEY', 'AZURE_TRANSLATOR_KEY', 'AZURE_TRANSLATOR_REGION'],
