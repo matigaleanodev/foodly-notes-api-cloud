@@ -11,6 +11,10 @@ on:
         description: Ejecutar el despliegue test previamente autorizado
         type: boolean
         default: false
+      recover_empty_stack:
+        description: Recuperación explícita de ROLLBACK_COMPLETE sin recursos conservados
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -141,6 +145,7 @@ jobs:
         id: plan
         env:
           PIPELINE_ROLE_ARN: ${{ vars.TEST_PIPELINE_ROLE_ARN }}
+          RECOVER_EMPTY_STACK: ${{ inputs.recover_empty_stack }}
         run: |
           [[ "$PIPELINE_ROLE_ARN" =~ ^arn:aws:iam::650387442642:role/foodly-notes-test-[a-zA-Z0-9_-]+$ ]]
           identity="$(aws sts get-caller-identity --region us-east-1 --output json)"
@@ -156,11 +161,26 @@ jobs:
                 aws cloudformation describe-stack-resources --region us-east-1 --stack-name foodly-notes-api-cloud-test > prior-resources.json
                 jq -e '.StackResources | length == 0' prior-resources.json
                 ;;
+              ROLLBACK_COMPLETE)
+                test "$RECOVER_EMPTY_STACK" = true
+                failed_stack=$(jq -r '.Stacks[0].StackId' prior-stack.json)
+                [[ "$failed_stack" =~ ^arn:aws:cloudformation:us-east-1:650387442642:stack/foodly-notes-api-cloud-test/[A-Za-z0-9-]+$ ]]
+                aws cloudformation describe-stack-resources --region us-east-1 --stack-name "$failed_stack" > prior-resources.json
+                jq -e 'all(.StackResources[]; .ResourceStatus == "DELETE_COMPLETE")' prior-resources.json
+                identity=$(aws sts get-caller-identity --region us-east-1 --output json)
+                test "$(jq -r .Account <<< "$identity")" = 650387442642
+                test "$(jq -r .Arn <<< "$identity" | cut -d/ -f2)" = "${PIPELINE_ROLE_ARN##*/}"
+                aws cloudformation delete-stack --region us-east-1 --stack-name "$failed_stack" --role-arn "$TEST_CLOUDFORMATION_ROLE_ARN"
+                aws cloudformation wait stack-delete-complete --region us-east-1 --stack-name "$failed_stack"
+                ;;
               *) echo "Revisar recuperación del estado $status antes de preparar."; exit 1 ;;
             esac
           else
             grep -q 'ValidationError.*Stack with id foodly-notes-api-cloud-test does not exist' prior-error.txt || { cat prior-error.txt; exit 1; }
           fi
+          identity=$(aws sts get-caller-identity --region us-east-1 --output json)
+          test "$(jq -r .Account <<< "$identity")" = 650387442642
+          test "$(jq -r .Arn <<< "$identity" | cut -d/ -f2)" = "${PIPELINE_ROLE_ARN##*/}"
           change_set="foodly-notes-api-cloud-test-${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           npm exec --workspace=@foodly-notes/infrastructure -- cdk deploy --app ../../delivery/cdk.out FoodlyNotesTest --role-arn "$TEST_CLOUDFORMATION_ROLE_ARN" --method prepare-change-set --change-set-name "$change_set" --require-approval never --no-notices
           aws cloudformation describe-change-set --region us-east-1 --stack-name foodly-notes-api-cloud-test --change-set-name "$change_set" > targets.json

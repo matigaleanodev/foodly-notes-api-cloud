@@ -87,6 +87,9 @@ export function applicationPolicies(apiId = '*', bootstrap = true) {
         StringLike: { 'cloudformation:ChangeSetName': `${STACK}-*` },
       }),
       allow(['cloudformation:DeleteChangeSet'], [stackArn]),
+      allow(['cloudformation:DeleteStack'], [stackArn], {
+        StringEquals: { 'cloudformation:RoleArn': roleArn('cloudformation') },
+      }),
       allow(['iam:PassRole'], [roleArn('cloudformation')], {
         StringEquals: { 'iam:PassedToService': 'cloudformation.amazonaws.com' },
       }),
