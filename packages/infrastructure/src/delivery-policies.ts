@@ -213,6 +213,7 @@ export function foundationPolicy() {
         'acm:RemoveTagsFromCertificate',
       ],
       ['arn:aws:acm:us-east-1:650387442642:certificate/*'],
+      { StringEquals: { 'aws:ResourceTag/Project': 'foodly-notes-api-cloud' } },
     ),
     allow(['apigateway:POST'], ['arn:aws:apigateway:us-east-1::/domainnames'], {
       StringEquals: { 'aws:RequestTag/Project': 'foodly-notes-api-cloud' },
@@ -229,6 +230,12 @@ export function foundationPolicy() {
       [
         'arn:aws:apigateway:us-east-1::/domainnames/api.foodlynotes.app',
         'arn:aws:apigateway:us-east-1::/domainnames/api.foodlynotes.app/*',
+      ],
+    ),
+    allow(
+      ['apigateway:GET', 'apigateway:PUT', 'apigateway:DELETE'],
+      [
+        'arn:aws:apigateway:us-east-1::/tags/arn%3Aaws%3Aapigateway%3Aus-east-1%3A%3A%2Fdomainnames%2Fapi.foodlynotes.app',
       ],
     ),
     allow(['iam:CreateRole', 'iam:PutRolePermissionsBoundary'], roles, {

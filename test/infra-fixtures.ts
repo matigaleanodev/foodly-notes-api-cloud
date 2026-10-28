@@ -9,7 +9,7 @@ import { FoodlyNotesStack } from '../packages/infrastructure/src/stack.ts';
 export { settings };
 
 /** Assets ZIP vacíos distintos para probar infraestructura, sin simular ejecución Lambda. */
-export async function stackFixture() {
+export async function stackFixture(overrides: Record<string, string> = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'foodly-cdk-test-'));
   for (const name of ['health', 'recipes']) {
     const header = Buffer.from('504b0506000000000000000000000000000000000000', 'hex');
@@ -22,7 +22,7 @@ export async function stackFixture() {
     context: { 'aws:cdk:version-reporting': false },
   });
   const stack = new FoodlyNotesStack(app, 'FoodlyNotesTest', {
-    configuration: deploymentConfiguration(settings),
+    configuration: deploymentConfiguration({ ...settings, ...overrides }),
     assetDirectory: directory,
   });
   return { directory, app, stack };

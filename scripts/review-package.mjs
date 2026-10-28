@@ -80,8 +80,10 @@ for (const definition of Object.values(definitions)) {
     );
   }
 }
+const publicAccess =
+  ofType('AWS::ApiGatewayV2::Api')[0].Properties.DisableExecuteApiEndpoint === true;
 for (const route of routes) {
-  assert.equal(route.Properties.AuthorizationType, 'AWS_IAM');
+  assert.equal(route.Properties.AuthorizationType, publicAccess ? 'NONE' : 'AWS_IAM');
   assert.doesNotMatch(route.Properties.RouteKey, /ANY|\$default|proxy\+/);
 }
 for (const fn of ofType('AWS::Lambda::Function')) {
@@ -92,9 +94,16 @@ for (const fn of ofType('AWS::Lambda::Function')) {
   assert.equal(fn.Properties.Handler, name === 'health' ? 'health.handler' : `recipes.${name}`);
   assert.equal(fn.Properties.Runtime, 'nodejs24.x');
   assert.ok(fn.Properties.Environment.Variables.MONGO_SECRET_ARN);
+  assert.equal(
+    fn.Properties.Environment.Variables.PUBLIC_ACCESS_ENABLED,
+    publicAccess ? 'true' : undefined,
+  );
   if (name === 'health')
     assert.equal(fn.Properties.Environment.Variables.PROVIDER_SECRET_ARN, undefined);
-  else assert.equal(fn.Properties.Environment.Variables.REAL_PROVIDERS_ENABLED, 'false');
+  else {
+    const enabled = fn.Properties.Environment.Variables.REAL_PROVIDERS_ENABLED;
+    assert.ok(enabled === 'false' || (publicAccess && enabled === 'true'));
+  }
   assert.ok(fn.Properties.Timeout <= 29);
   assert.match(fn.Properties.Role, /^arn:aws:iam::650387442642:role\/foodly-notes-test-/);
 }

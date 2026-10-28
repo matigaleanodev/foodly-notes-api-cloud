@@ -28,7 +28,16 @@ export function deploymentConfiguration(env: NodeJS.ProcessEnv) {
   }).origins;
   if (origins.some((origin) => !/^https?:\/\//.test(origin)))
     throw new Error('HTTP API requires HTTP(S) CORS origins.');
+  for (const name of ['PUBLIC_ACCESS_ENABLED', 'REAL_PROVIDERS_ENABLED'])
+    if (env[name] !== undefined && !['true', 'false'].includes(env[name]!))
+      throw new Error(`Invalid ${name}.`);
+  const publicAccess = env.PUBLIC_ACCESS_ENABLED === 'true';
+  const realProviders = env.REAL_PROVIDERS_ENABLED === 'true';
+  if (realProviders && !publicAccess)
+    throw new Error('Real providers require protected public access.');
   return {
+    publicAccess,
+    realProviders,
     healthMongoSecretArn: secret('TEST_HEALTH_MONGO_SECRET_ARN', 'mongo-health'),
     mongoSecretArn: secret('TEST_MONGO_SECRET_ARN', 'mongo'),
     providerSecretArn: secret('TEST_PROVIDER_SECRET_ARN', 'providers'),

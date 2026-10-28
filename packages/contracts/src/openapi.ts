@@ -28,7 +28,7 @@ interface Operation {
 }
 
 /** Documento de revisión local: nunca se importa en Gateway ni publica una ruta de docs. */
-export function createOpenApiDocument() {
+export function createOpenApiDocument(publicAccess = false) {
   const paths: Record<string, Record<string, Operation>> = {};
   for (const route of Object.values(routes)) {
     paths[route.path] = {};
@@ -92,11 +92,14 @@ export function createOpenApiDocument() {
     jsonSchemaDialect: 'http://json-schema.org/draft-07/schema#',
     info: {
       title: 'Foodly Notes HTTP contracts',
-      version: '0.1.0',
+      version: '1.0.0',
       description:
-        'Contratos del runtime y rutas actuales de test con AWS_IAM (SigV4), sin autenticación de producto. Requiere tooling con dialecto draft-07; no convierte schemas a OpenAPI 3.0. x-http-input describe entrada previa a normalización; x-canonical-request describe valores validados después de parsing/normalización (limit=50 en listado; lang=en efectivo por omisión). La unicidad de sourceIds después de Number es una condición adicional del runtime que uniqueItems no expresa entre tipos distintos. Errores Gateway/CORS/preflight requieren comprobación en AWS y no comparten necesariamente schemas ni headers de Lambda.',
+        (publicAccess
+          ? 'Acceso público a través de Cloudflare con origen verificado y cuotas por visitante. '
+          : 'Acceso AWS_IAM (SigV4). ') +
+        'Requiere tooling con dialecto draft-07; no convierte schemas a OpenAPI 3.0. x-http-input describe entrada previa a normalización; x-canonical-request describe valores validados después de parsing/normalización (limit=50 en listado; lang=en efectivo por omisión). La unicidad de sourceIds después de Number es una condición adicional del runtime que uniqueItems no expresa entre tipos distintos. Errores Gateway/CORS/preflight requieren comprobación en AWS y no comparten necesariamente schemas ni headers de Lambda.',
     },
-    security: [{ sigv4: [] }],
+    security: publicAccess ? [] : [{ sigv4: [] }],
     components: {
       securitySchemes: {
         sigv4: {

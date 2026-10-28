@@ -92,4 +92,24 @@ describe('Stack CDK y API Gateway por responsabilidad', () => {
       await rm(directory, { recursive: true, force: true });
     }
   });
+  it('habilita acceso público protegido sobre las mismas funciones y rutas', async () => {
+    const { directory, stack } = await stackFixture({
+      PUBLIC_ACCESS_ENABLED: 'true',
+      REAL_PROVIDERS_ENABLED: 'true',
+    });
+    try {
+      const template = Template.fromStack(stack);
+      template.hasResourceProperties('AWS::ApiGatewayV2::Api', { DisableExecuteApiEndpoint: true });
+      for (const route of Object.values(template.findResources('AWS::ApiGatewayV2::Route')))
+        expect(route.Properties.AuthorizationType).toBe('NONE');
+      for (const fn of Object.values(template.findResources('AWS::Lambda::Function'))) {
+        expect(fn.Properties.Environment.Variables.PUBLIC_ACCESS_ENABLED).toBe('true');
+        if (fn.Properties.FunctionName.endsWith('-health'))
+          expect(fn.Properties.Environment.Variables.PROVIDER_SECRET_ARN).toBeUndefined();
+        else expect(fn.Properties.Environment.Variables.REAL_PROVIDERS_ENABLED).toBe('true');
+      }
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
 });

@@ -1,4 +1,5 @@
 import middy from '@middy/core';
+import { cloudflareVisitor, trustedOrigin } from './ingress.ts';
 import { requestLogContext } from '../runtime/request-context.ts';
 import type {
   APIGatewayProxyEventV2,
@@ -40,7 +41,12 @@ export function json(
 }
 
 /** Aplica el contrato HTTP común; los logs usan rutas declaradas y omiten payloads y consultas. */
-export function http(route: Route, config: Configuration, handler: HttpHandler) {
+export function http(
+  route: Route,
+  config: Configuration,
+  handler: HttpHandler,
+  load?: () => Promise<NodeJS.ProcessEnv>,
+) {
   type Internal = { foodlyHttp: { requestId: string; started: number } };
   type Request = middy.Request<HttpEvent, HttpResult, Error, Context, Internal>;
   const requestIds = new WeakMap<HttpEvent, string>();
@@ -81,13 +87,28 @@ export function http(route: Route, config: Configuration, handler: HttpHandler) 
   };
   return middy<HttpEvent, HttpResult, Error, Context, Internal>({ timeoutEarlyInMillis: 0 })
     .use({
-      before(request) {
+      async before(request) {
         request.context.callbackWaitsForEmptyEventLoop = false;
         request.internal.foodlyHttp = { requestId: randomUUID(), started: performance.now() };
         const { event } = request;
         requestIds.set(event, request.internal.foodlyHttp.requestId);
         if (event.version !== '2.0' || !isIP(event.requestContext.http.sourceIp)) {
           throw new HttpError(403, 'Forbidden', 'Forbidden');
+        }
+        if (load) {
+          const visitor = cloudflareVisitor(event);
+          if (!visitor) throw new HttpError(403, 'Forbidden', 'Forbidden');
+          let expected: string | undefined;
+          try {
+            expected = (await load()).ORIGIN_VERIFY_SECRET;
+          } catch {
+            throw new HttpError(503, 'Service unavailable.', 'Service Unavailable', {
+              'retry-after': '5',
+            });
+          }
+          if (!trustedOrigin(event.headers['x-foodly-origin'], expected))
+            throw new HttpError(403, 'Forbidden', 'Forbidden');
+          event.requestContext.http.sourceIp = visitor;
         }
         if (
           event.rawPath.length + (event.rawQueryString ? event.rawQueryString.length + 1 : 0) >

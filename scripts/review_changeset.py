@@ -25,6 +25,24 @@ def targets(stack, changeset):
         raise ValueError('Changeset fuera del destino previsto')
 
 
+
+PRODUCTION_ORIGINS = 'https://foodlynotes.app,https://www.foodlynotes.app,https://foodly-notes.web.app,https://foodly-notes.firebaseapp.com,https://localhost,http://localhost'
+
+
+def stable_environment(current, previous):
+    before = previous.get('Properties', {}).get('Environment', {})
+    after = current.get('Properties', {}).get('Environment', {})
+    if before == after:
+        return True
+    expected = {**before, 'Variables': {**before.get('Variables', {})}}
+    variables = expected['Variables']
+    variables['CORS_ORIGIN'] = PRODUCTION_ORIGINS
+    variables['PUBLIC_ACCESS_ENABLED'] = 'true'
+    if 'REAL_PROVIDERS_ENABLED' in variables:
+        variables['REAL_PROVIDERS_ENABLED'] = 'true'
+    return after == expected
+
+
 def stable_permission(resource, changes, template, prior):
     """CF propaga el ARN como dinámico al cambiar Code; verifica que no pueda cambiar."""
     if not prior or resource.get('ResourceType') != 'AWS::Lambda::Permission' or resource.get('Action') != 'Modify' or resource.get('Replacement') != 'Conditional':
@@ -42,11 +60,11 @@ def stable_permission(resource, changes, template, prior):
     name = current.get('Properties', {}).get('FunctionName', '')
     if current.get('Type') != 'AWS::Lambda::Function' or not re.fullmatch(STACK + r'-(health|catalog|detail|ingredients)', name):
         return False
-    without_code = lambda value: {**value, 'Properties': {k: v for k, v in value.get('Properties', {}).items() if k != 'Code'}}
-    if without_code(current) != without_code(previous):
+    without_code = lambda value: {**value, 'Properties': {k: v for k, v in value.get('Properties', {}).items() if k not in ('Code', 'Environment')}}
+    if without_code(current) != without_code(previous) or not stable_environment(current, previous):
         return False
     function_change = next((item['ResourceChange'] for item in changes if item['ResourceChange'].get('LogicalResourceId') == function), {})
-    if function_change.get('Action') != 'Modify' or function_change.get('Replacement') != 'False' or function_change.get('PhysicalResourceId') != name or function_change.get('Details') != [{'Target': {'Attribute': 'Properties', 'Name': 'Code', 'RequiresRecreation': 'Never'}, 'Evaluation': 'Static', 'ChangeSource': 'DirectModification'}]:
+    if function_change.get('Action') != 'Modify' or function_change.get('Replacement') != 'False' or function_change.get('PhysicalResourceId') != name or not function_change.get('Details') or any(detail != {'Target': {'Attribute': 'Properties', 'Name': detail.get('Target', {}).get('Name'), 'RequiresRecreation': 'Never'}, 'Evaluation': 'Static', 'ChangeSource': 'DirectModification'} or detail.get('Target', {}).get('Name') not in ('Code', 'Environment') for detail in function_change.get('Details', [])):
         return False
     return resource.get('Scope') == ['Properties'] and resource.get('Details') == [{'Target': {'Attribute': 'Properties', 'Name': 'FunctionName', 'RequiresRecreation': 'Always'}, 'Evaluation': 'Dynamic', 'ChangeSource': 'ResourceAttribute', 'CausingEntity': function + '.Arn'}]
 
