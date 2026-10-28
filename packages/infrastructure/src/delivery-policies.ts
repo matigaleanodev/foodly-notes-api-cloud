@@ -182,10 +182,12 @@ export function applicationPolicies(apiId = '*', bootstrap = true) {
           'apigateway:PUT',
           'apigateway:DELETE',
         ],
-        [
-          `arn:aws:apigateway:us-east-1::/apis/${apiId}`,
-          `arn:aws:apigateway:us-east-1::/apis/${apiId}/*`,
-        ],
+        apiId === '*'
+          ? ['arn:aws:apigateway:us-east-1::/apis/*']
+          : [
+              `arn:aws:apigateway:us-east-1::/apis/${apiId}`,
+              `arn:aws:apigateway:us-east-1::/apis/${apiId}/*`,
+            ],
       ),
       allow(
         ['apigateway:GET', 'apigateway:PUT', 'apigateway:DELETE'],
