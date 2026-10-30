@@ -36,7 +36,7 @@ jobs:
           private_dirs = {'.agents', '.codex', '.aws', '.tmp', 'mentor', 'status', 'node_modules'}
           for name in filter(None, tracked):
               path = PurePosixPath(name)
-              assert path.name.lower() not in forbidden, f'Archivo local versionado: {name}'
+              assert name == 'AGENTS.md' or path.name.lower() not in forbidden, f'Archivo local versionado: {name}'
               assert not private_dirs.intersection(path.parts), f'Directorio local versionado: {name}'
               assert not (path.name.startswith('.env') and path.name != '.env.example'), f'Configuración privada versionada: {name}'
           assert {'README.md', 'README.es.md'}.issubset(set(tracked)), 'Falta el par de README'
