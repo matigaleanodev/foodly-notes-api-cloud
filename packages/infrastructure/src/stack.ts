@@ -94,13 +94,16 @@ export class FoodlyNotesStack extends Stack {
         environment: {
           variables: {
             NODE_ENV: 'production',
+            RUNTIME_CONFIGURATION_REVISION: config.configurationRevision,
             CORS_ORIGIN: config.origins.join(','),
             ...(config.publicAccess ? { PUBLIC_ACCESS_ENABLED: 'true' } : {}),
-            MONGO_SECRET_ARN: health ? config.healthMongoSecretArn : config.mongoSecretArn,
+            MONGO_PARAMETER_NAME: health
+              ? config.healthMongoParameterName
+              : config.mongoParameterName,
             ...(health
               ? {}
               : {
-                  PROVIDER_SECRET_ARN: config.providerSecretArn,
+                  PROVIDER_PARAMETER_NAME: config.providerParameterName,
                   SPOONACULAR_BASE_URL: 'https://api.spoonacular.com',
                   SPOONACULAR_DAILY_REQUEST_LIMIT: '100',
                   AZURE_DAILY_CHARACTER_LIMIT: '50000',

@@ -34,13 +34,35 @@ def stable_environment(current, previous):
     after = current.get('Properties', {}).get('Environment', {})
     if before == after:
         return True
-    expected = {**before, 'Variables': {**before.get('Variables', {})}}
-    variables = expected['Variables']
-    variables['CORS_ORIGIN'] = PRODUCTION_ORIGINS
-    variables['PUBLIC_ACCESS_ENABLED'] = 'true'
-    if 'REAL_PROVIDERS_ENABLED' in variables:
-        variables['REAL_PROVIDERS_ENABLED'] = 'true'
-    return after == expected
+    for public in (False, True):
+        expected = {**before, 'Variables': {**before.get('Variables', {})}}
+        variables = expected['Variables']
+        if public:
+            variables['CORS_ORIGIN'] = PRODUCTION_ORIGINS
+            variables['PUBLIC_ACCESS_ENABLED'] = 'true'
+            if 'REAL_PROVIDERS_ENABLED' in variables:
+                variables['REAL_PROVIDERS_ENABLED'] = 'true'
+        updated = after.get('Variables', {})
+        revision = updated.get('RUNTIME_CONFIGURATION_REVISION')
+        if revision is not None:
+            if not re.fullmatch(r'[A-Za-z0-9._-]{1,128}', revision):
+                return False
+            variables['RUNTIME_CONFIGURATION_REVISION'] = revision
+        health = current.get('Properties', {}).get('FunctionName') == STACK + '-health'
+        references = [('MONGO', 'mongo-health' if health else 'mongo')]
+        if not health:
+            references.append(('PROVIDER', 'providers'))
+        for prefix, segment in references:
+            legacy = prefix + '_SECRET_ARN'
+            target = prefix + '_PARAMETER_NAME'
+            if legacy in variables and target in updated:
+                if not re.fullmatch(r'arn:aws:secretsmanager:us-east-1:650387442642:secret:foodly-notes/test/' + segment + r'-[A-Za-z0-9]{6}', variables[legacy]):
+                    return False
+                del variables[legacy]
+                variables[target] = '/foodly-notes/test/' + segment
+        if after == expected:
+            return True
+    return False
 
 
 def stable_permission(resource, changes, template, prior):

@@ -10,7 +10,6 @@ import {
 } from 'aws-cdk-lib';
 import { CfnRole } from 'aws-cdk-lib/aws-iam';
 import { CfnBucket, CfnBucketPolicy } from 'aws-cdk-lib/aws-s3';
-import { CfnSecret } from 'aws-cdk-lib/aws-secretsmanager';
 import { CfnCertificate } from 'aws-cdk-lib/aws-certificatemanager';
 import { CfnDomainName, CfnApiMapping } from 'aws-cdk-lib/aws-apigatewayv2';
 import type { Construct } from 'constructs';
@@ -33,10 +32,6 @@ export class FoundationStack extends Stack {
       env: { account: ACCOUNT, region: REGION },
       stackName: 'foodly-notes-api-cloud-test-foundation',
       synthesizer: new BootstraplessSynthesizer(),
-    });
-    const host = new CfnParameter(this, 'MongoHost', {
-      type: 'String',
-      allowedPattern: '[a-z0-9.-]+\\.mongodb\\.net',
     });
     const apiId = new CfnParameter(this, 'TestApiId', {
       type: 'String',
@@ -142,25 +137,14 @@ export class FoundationStack extends Stack {
         },
       ]),
     });
-    const mongoUri = Fn.sub(
-      'mongodb+srv://${MongoHost}/foodly_notes_rc?authSource=%24external&authMechanism=MONGODB-AWS&tls=true&appName=foodly-notes-rc',
-      { MongoHost: host.valueAsString },
-    );
-    for (const name of ['mongo-health', 'mongo', 'providers']) {
-      const secret = new CfnSecret(this, name.replace('-', ''), {
-        name: `foodly-notes/test/${name}`,
-        secretString:
-          name === 'providers'
-            ? JSON.stringify({
-                SPOONACULAR_API_KEY: 'disabled',
-                AZURE_TRANSLATOR_KEY: 'disabled',
-                AZURE_TRANSLATOR_REGION: 'disabled',
-              })
-            : Fn.toJsonString({ MONGO_URI: mongoUri }),
-      });
-      secret.applyRemovalPolicy(RemovalPolicy.RETAIN);
-      new CfnOutput(this, `${name.replace('-', '')}Arn`, { value: secret.ref });
-    }
+    const legacyAccess = new CfnParameter(this, 'LegacyConfigurationAccess', {
+      type: 'String',
+      default: 'true',
+      allowedValues: ['false', 'true'],
+    });
+    const legacyCondition = new CfnCondition(this, 'LegacySecrets', {
+      expression: Fn.conditionEquals(legacyAccess.valueAsString, 'true'),
+    });
     const statements = applicationPolicies(apiId.valueAsString);
     for (const [name, permissions] of Object.entries(statements)) {
       const role = new CfnRole(this, `${name}Role`, {
@@ -182,7 +166,13 @@ export class FoundationStack extends Stack {
                     policy(applicationPolicies().cloudformation),
                     policy(applicationPolicies(apiId.valueAsString, false).cloudformation),
                   )
-                : policy(permissions),
+                : name === 'health' || name === 'recipes'
+                  ? Fn.conditionIf(
+                      legacyCondition.logicalId,
+                      policy(applicationPolicies(apiId.valueAsString, false, true)[name]),
+                      policy(permissions),
+                    )
+                  : policy(permissions),
           },
         ],
       });

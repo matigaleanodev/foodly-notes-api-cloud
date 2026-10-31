@@ -6,6 +6,10 @@ on:
         description: SHA completo de dev revisado
         type: string
         required: true
+      legacy_secrets_access:
+        description: Conservar lectura de Secrets Manager para transición y rollback
+        type: boolean
+        default: true
       api_id:
         description: API ID observado; unassigned solo durante la primera instalación
         type: string
@@ -39,7 +43,7 @@ jobs:
       AWS_REGION: us-east-1
       REVIEWED_SHA: ${{ inputs.reviewed_sha }}
       APPROVED_SHA: ${{ vars.FOUNDATION_APPROVED_SHA }}
-      MONGO_HOST: ${{ vars.TEST_MONGO_HOST }}
+      LEGACY_SECRETS_ACCESS: ${{ inputs.legacy_secrets_access }}
       API_ID: ${{ inputs.api_id }}
       REGIONAL_BOOTSTRAP: ${{ inputs.regional_bootstrap }}
       PRODUCTION_DOMAIN: ${{ inputs.production_domain }}
@@ -54,7 +58,6 @@ jobs:
           [[ "$REVIEWED_SHA" =~ ^[a-f0-9]{40}$ ]]
           test "$GITHUB_SHA" = "$REVIEWED_SHA"
           test "$APPROVED_SHA" = "$REVIEWED_SHA"
-          [[ "$MONGO_HOST" =~ ^[a-z0-9.-]+\.mongodb\.net$ ]]
           [[ "$API_ID" =~ ^(unassigned|[a-z0-9]{1,20})$ ]]
           if [[ "$REGIONAL_BOOTSTRAP" == false ]]; then test "$API_ID" != unassigned; fi
       - uses: actions/setup-node@v7.1.0
@@ -83,13 +86,14 @@ jobs:
           if aws cloudformation describe-stacks --region us-east-1 --stack-name "$stack" > prior.json 2> prior-error.txt; then
             status=$(jq -r '.Stacks[0].StackStatus' prior.json)
             case "$status" in CREATE_COMPLETE|UPDATE_COMPLETE|UPDATE_ROLLBACK_COMPLETE) ;; *) echo "Revisar estado $status"; exit 1 ;; esac
+            aws cloudformation get-template --region us-east-1 --stack-name "$stack" --template-stage Original > previous-template.json
             kind=UPDATE
           else
             grep -q 'ValidationError.*Stack with id foodly-notes-api-cloud-test-foundation does not exist' prior-error.txt || { cat prior-error.txt; exit 1; }
             kind=CREATE
           fi
           change_set="${stack}-${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          aws cloudformation create-change-set --region us-east-1 --stack-name "$stack" --change-set-name "$change_set" --change-set-type "$kind" --template-body file://cdk.foundation.out/FoodlyNotesFoundation.template.json --role-arn arn:aws:iam::650387442642:role/foodly-notes-test-foundation-cloudformation --capabilities CAPABILITY_NAMED_IAM --parameters "ParameterKey=MongoHost,ParameterValue=$MONGO_HOST" "ParameterKey=TestApiId,ParameterValue=$API_ID" "ParameterKey=AllowRegionalApiBootstrap,ParameterValue=$REGIONAL_BOOTSTRAP" "ParameterKey=ProductionDomainEnabled,ParameterValue=$PRODUCTION_DOMAIN" "ParameterKey=CertificateArn,ParameterValue=$CERTIFICATE_ARN" > targets.json
+          aws cloudformation create-change-set --region us-east-1 --stack-name "$stack" --change-set-name "$change_set" --change-set-type "$kind" --template-body file://cdk.foundation.out/FoodlyNotesFoundation.template.json --role-arn arn:aws:iam::650387442642:role/foodly-notes-test-foundation-cloudformation --capabilities CAPABILITY_NAMED_IAM --parameters "ParameterKey=LegacyConfigurationAccess,ParameterValue=$LEGACY_SECRETS_ACCESS" "ParameterKey=TestApiId,ParameterValue=$API_ID" "ParameterKey=AllowRegionalApiBootstrap,ParameterValue=$REGIONAL_BOOTSTRAP" "ParameterKey=ProductionDomainEnabled,ParameterValue=$PRODUCTION_DOMAIN" "ParameterKey=CertificateArn,ParameterValue=$CERTIFICATE_ARN" > targets.json
           stack_arn=$(jq -r .StackId targets.json)
           changeset_arn=$(jq -r .Id targets.json)
           aws cloudformation wait change-set-create-complete --region us-east-1 --stack-name "$stack_arn" --change-set-name "$changeset_arn"
@@ -104,7 +108,17 @@ jobs:
           for item in change['Changes']:
               resource=item['ResourceChange']
               assert resource['ResourceType'] in ('AWS::IAM::Role','AWS::S3::Bucket','AWS::S3::BucketPolicy','AWS::SecretsManager::Secret','AWS::CertificateManager::Certificate','AWS::ApiGatewayV2::DomainName','AWS::ApiGatewayV2::ApiMapping')
-              assert resource['Action']!='Remove' and resource.get('Replacement') not in ('True','Conditional')
+              if resource['Action']=='Remove':
+                  assert resource['ResourceType']=='AWS::SecretsManager::Secret'
+                  assert resource['LogicalResourceId'] in ('mongohealth','mongo','providers')
+                  previous=json.load(open('previous-template.json'))['TemplateBody']
+                  if isinstance(previous,str): previous=json.loads(previous)
+                  old=previous['Resources'][resource['LogicalResourceId']]
+                  assert old['DeletionPolicy']=='Retain' and old['UpdateReplacePolicy']=='Retain'
+                  assert old['Properties']['Name'] in ('foodly-notes/test/mongo-health','foodly-notes/test/mongo','foodly-notes/test/providers')
+              else:
+                  assert resource['ResourceType']!='AWS::SecretsManager::Secret'
+                  assert resource.get('Replacement') not in ('True','Conditional')
           template=json.load(open('prepared-template.json'))['TemplateBody']
           if isinstance(template,str): template=json.loads(template)
           assert template==json.load(open('cdk.foundation.out/FoodlyNotesFoundation.template.json'))

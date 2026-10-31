@@ -61,7 +61,24 @@ const logs = (names: string[]) =>
       (name) => `arn:aws:logs:us-east-1:650387442642:log-group:/aws/lambda/${STACK}-${name}:*`,
     ),
   );
-const secrets = (names: string[]) =>
+
+export const parameterArn = (name: string) =>
+  `arn:aws:ssm:us-east-1:650387442642:parameter/foodly-notes/test/${name}`;
+
+export const parameterNames = ['mongo-health', 'mongo', 'providers'];
+
+const kms = (actions: string[], names: string[]) =>
+  allow(actions, ['arn:aws:kms:us-east-1:650387442642:key/*'], {
+    StringEquals: {
+      'kms:ViaService': 'ssm.us-east-1.amazonaws.com',
+      'kms:EncryptionContext:PARAMETER_ARN': names.map(parameterArn),
+    },
+  });
+const parameters = (names: string[]) => [
+  allow(['ssm:GetParameter'], names.map(parameterArn)),
+  kms(['kms:Decrypt'], names),
+];
+const legacySecrets = (names: string[]) =>
   allow(
     ['secretsmanager:GetSecretValue'],
     names.map(
@@ -70,10 +87,25 @@ const secrets = (names: string[]) =>
     ),
   );
 
-export function applicationPolicies(apiId = '*', bootstrap = true) {
+export function parameterSyncPolicy() {
+  return policy([
+    allow(['ssm:PutParameter'], parameterNames.map(parameterArn)),
+    kms(['kms:Encrypt'], parameterNames),
+  ]);
+}
+
+export function applicationPolicies(apiId = '*', bootstrap = true, legacyAccess = false) {
   return {
-    health: [logs(['health']), secrets(['mongo-health'])],
-    recipes: [logs(['catalog', 'detail', 'ingredients']), secrets(['mongo', 'providers'])],
+    health: [
+      logs(['health']),
+      ...parameters(['mongo-health']),
+      ...(legacyAccess ? [legacySecrets(['mongo-health'])] : []),
+    ],
+    recipes: [
+      logs(['catalog', 'detail', 'ingredients']),
+      ...parameters(['mongo', 'providers']),
+      ...(legacyAccess ? [legacySecrets(['mongo', 'providers'])] : []),
+    ],
     prepare: [
       readStack,
       readAssets,
@@ -279,22 +311,6 @@ export function foundationPolicy() {
         's3:PutLifecycleConfiguration',
       ],
       [`arn:aws:s3:::${BUCKET}`],
-    ),
-    allow(
-      [
-        'secretsmanager:CreateSecret',
-        'secretsmanager:DescribeSecret',
-        'secretsmanager:TagResource',
-        'secretsmanager:UntagResource',
-        'secretsmanager:UpdateSecret',
-        'secretsmanager:PutSecretValue',
-        'secretsmanager:DeleteSecret',
-        'secretsmanager:GetResourcePolicy',
-      ],
-      ['mongo-health', 'mongo', 'providers'].map(
-        (name) =>
-          `arn:aws:secretsmanager:us-east-1:650387442642:secret:foodly-notes/test/${name}-??????`,
-      ),
     ),
   ]);
 }

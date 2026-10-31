@@ -79,9 +79,9 @@ describe('Stack CDK y API Gateway por responsabilidad', () => {
         Environment: {
           Variables: {
             NODE_ENV: 'production',
+            RUNTIME_CONFIGURATION_REVISION: 'initial',
             CORS_ORIGIN: 'https://test.foodlynotes.app,https://localhost,http://localhost',
-            MONGO_SECRET_ARN:
-              'arn:aws:secretsmanager:us-east-1:650387442642:secret:foodly-notes/test/mongo-health-Ab1234',
+            MONGO_PARAMETER_NAME: '/foodly-notes/test/mongo-health',
           },
         },
       });
@@ -105,7 +105,7 @@ describe('Stack CDK y API Gateway por responsabilidad', () => {
       for (const fn of Object.values(template.findResources('AWS::Lambda::Function'))) {
         expect(fn.Properties.Environment.Variables.PUBLIC_ACCESS_ENABLED).toBe('true');
         if (fn.Properties.FunctionName.endsWith('-health'))
-          expect(fn.Properties.Environment.Variables.PROVIDER_SECRET_ARN).toBeUndefined();
+          expect(fn.Properties.Environment.Variables.PROVIDER_PARAMETER_NAME).toBeUndefined();
         else expect(fn.Properties.Environment.Variables.REAL_PROVIDERS_ENABLED).toBe('true');
       }
     } finally {

@@ -1,45 +1,45 @@
-import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
+import { GetParameterCommand, SSMClient } from '@aws-sdk/client-ssm';
 
-type SecretReader = (arn: string, signal: AbortSignal) => Promise<string>;
+type ParameterReader = (name: string, signal: AbortSignal) => Promise<string>;
 
-const client = new SecretsManagerClient({ maxAttempts: 1 });
-const readSecret: SecretReader = async (arn, signal) => {
-  const result = await client.send(new GetSecretValueCommand({ SecretId: arn }), {
+const client = new SSMClient({ maxAttempts: 1 });
+const readParameter: ParameterReader = async (name, signal) => {
+  const result = await client.send(new GetParameterCommand({ Name: name, WithDecryption: true }), {
     abortSignal: signal,
   });
-  if (!result.SecretString) throw new Error('Secret unavailable.');
-  return result.SecretString;
+  if (!result.Parameter?.Value) throw new Error('Parameter unavailable.');
+  return result.Parameter?.Value;
 };
 
-/** Lee secretos solo en runtime, comparte inicialización y permite recuperar un fallo transitorio. */
-export function runtimeEnvironment(env: NodeJS.ProcessEnv, read: SecretReader = readSecret) {
+/** Lee parámetros solo en runtime, comparte inicialización y permite recuperar un fallo transitorio. */
+export function runtimeEnvironment(env: NodeJS.ProcessEnv, read: ParameterReader = readParameter) {
   let pending: Promise<NodeJS.ProcessEnv> | undefined;
   return () => {
     pending ??= (async () => {
       const result = { ...env };
-      const secrets = [
+      const parameters = [
         {
-          arn: env.MONGO_SECRET_ARN,
+          name: env.MONGO_PARAMETER_NAME,
           fields: [
             'MONGO_URI',
             ...(env.PUBLIC_ACCESS_ENABLED === 'true' ? ['ORIGIN_VERIFY_SECRET'] : []),
           ],
         },
         {
-          arn: env.PROVIDER_SECRET_ARN,
+          name: env.PROVIDER_PARAMETER_NAME,
           fields: ['SPOONACULAR_API_KEY', 'AZURE_TRANSLATOR_KEY', 'AZURE_TRANSLATOR_REGION'],
         },
       ];
       const values = await Promise.all(
-        secrets.map(async ({ arn, fields }) => {
-          if (!arn) return {};
-          const value: unknown = JSON.parse(await read(arn, AbortSignal.timeout(2000)));
+        parameters.map(async ({ name, fields }) => {
+          if (!name) return {};
+          const value: unknown = JSON.parse(await read(name, AbortSignal.timeout(2000)));
           if (!value || typeof value !== 'object' || Array.isArray(value))
-            throw new Error('Invalid runtime secret.');
+            throw new Error('Invalid runtime parameter.');
           const record = value as Record<string, unknown>;
           for (const field of fields)
             if (typeof record[field] !== 'string' || !record[field].trim())
-              throw new Error('Invalid runtime secret.');
+              throw new Error('Invalid runtime parameter.');
           return Object.fromEntries(fields.map((field) => [field, record[field] as string]));
         }),
       );

@@ -10,7 +10,7 @@ const allowed = {
   infrastructure: new Set([contractName, 'aws-cdk-lib', 'constructs']),
   runtime: new Set([
     contractName,
-    '@aws-sdk/client-secrets-manager',
+    '@aws-sdk/client-ssm',
     '@aws-sdk/credential-providers',
     '@middy/core',
     'ajv',
