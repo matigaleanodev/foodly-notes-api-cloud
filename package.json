@@ -1,6 +1,6 @@
 {
   "name": "foodly-notes-api-cloud",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": true,
   "type": "module",
   "engines": {
@@ -24,9 +24,9 @@
     "boundaries": "node scripts/check-boundaries.mjs"
   },
   "devDependencies": {
-    "@foodly-notes/contracts": "1.1.0",
-    "@foodly-notes/infrastructure": "1.1.0",
-    "@foodly-notes/runtime": "1.1.0",
+    "@foodly-notes/contracts": "1.1.1",
+    "@foodly-notes/infrastructure": "1.1.1",
+    "@foodly-notes/runtime": "1.1.1",
     "@stylistic/eslint-plugin": "5.10.0",
     "@types/aws-lambda": "8.10.164",
     "@types/node": "24.19.2",
