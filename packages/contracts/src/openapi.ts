@@ -92,7 +92,7 @@ export function createOpenApiDocument(publicAccess = false) {
     jsonSchemaDialect: 'http://json-schema.org/draft-07/schema#',
     info: {
       title: 'Foodly Notes HTTP contracts',
-      version: '1.1.0',
+      version: '1.1.1',
       description:
         (publicAccess
           ? 'Acceso público a través de Cloudflare con origen verificado y cuotas por visitante. '

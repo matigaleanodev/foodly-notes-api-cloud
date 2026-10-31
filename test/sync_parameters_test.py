@@ -1,4 +1,5 @@
 import contextlib
+import shutil
 import importlib.util
 import io
 import json
@@ -26,14 +27,30 @@ class SyncTest(unittest.TestCase):
 
     def test_preserves_original_json_and_special_characters(self):
         self.env["FOODLY_PROVIDERS_JSON"] += "\n\n"
-        with patch.object(sync.subprocess, "run") as run, contextlib.redirect_stdout(io.StringIO()) as output:
-            run.side_effect = [subprocess.CompletedProcess([], 0, json.dumps(self.identity), "")] + [subprocess.CompletedProcess([], 0, '{"Version": 7}', "")] * 3
+        requests, paths = [], []
+        def execute(command, **kwargs):
+            self.assertNotIn("input", kwargs)
+            if "put-parameter" not in command:
+                return subprocess.CompletedProcess([], 0, json.dumps(self.identity), "")
+            path = Path(command[command.index("--cli-input-json") + 1].removeprefix("file://"))
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            self.assertNotIn("sensitive", " ".join(command))
+            requests.append(json.loads(path.read_text()))
+            paths.append(path)
+            return subprocess.CompletedProcess([], 0, '{"Version": 7}', "")
+        with patch.object(sync.subprocess, "run", side_effect=execute), contextlib.redirect_stdout(io.StringIO()) as output:
             sync.main(self.env)
-            requests = [json.loads(call.kwargs["input"]) for call in run.call_args_list[1:]]
+        self.assertTrue(all(not path.exists() for path in paths))
         self.assertEqual([item["Value"] for item in requests], [self.env["FOODLY_HEALTH_MONGO_JSON"], self.env["FOODLY_MONGO_JSON"], self.env["FOODLY_PROVIDERS_JSON"]])
         self.assertTrue(all(item["Type"] == "SecureString" and item["Tier"] == "Standard" and item["KeyId"] == "alias/aws/ssm" for item in requests))
         self.assertNotIn("sensitive", output.getvalue())
         self.assertEqual(output.getvalue().count("version 7 (updated)"), 3)
+
+    @unittest.skipUnless(shutil.which("aws"), "AWS CLI unavailable")
+    def test_real_cli_loads_payload_without_aws_calls(self):
+        with patch.dict(os.environ, {"AWS_CONFIG_FILE": "/dev/null", "AWS_SHARED_CREDENTIALS_FILE": "/dev/null", "AWS_ACCESS_KEY_ID": "fixture", "AWS_SECRET_ACCESS_KEY": "fixture", "AWS_EC2_METADATA_DISABLED": "true"}):
+            result = sync.aws("ssm", "put-parameter", "--generate-cli-skeleton", "output", "--endpoint-url", "http://127.0.0.1:9", request={"Name": "/foodly-notes/test/providers", "Value": self.env["FOODLY_PROVIDERS_JSON"], "Type": "SecureString", "Tier": "Standard", "Overwrite": True})
+        self.assertEqual(result["Version"], 0)
 
     def test_selective_update_needs_no_other_secrets(self):
         self.env["PARAMETER"] = "providers"
