@@ -1,8 +1,8 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { createHash } from 'node:crypto';
-import { database, type Database } from '../src/database.ts';
-import { createRecipesHandler } from '../src/recipes.ts';
+import { database, type Database } from '../packages/runtime/src/runtime/database.ts';
+import { createRecipesHandler } from './gateway.ts';
 import { context, env, event } from './helpers.ts';
 
 describe('Listado y cuotas con Mongo efímero aislado', () => {
@@ -59,6 +59,9 @@ describe('Listado y cuotas con Mongo efímero aislado', () => {
     expect(JSON.parse((await handler(event('/api/recipes', 'after=30'), context)).body!)).toEqual(
       [],
     );
+    expect(
+      await handler(event('/api/recipes', 'limit=001&after=010', '198.51.100.10', 'HEAD'), context),
+    ).toMatchObject({ statusCode: 200, body: '' });
   });
   it('comparte conexión/promise entre llamadas concurrentes y reutiliza la conexión lista', async () => {
     const other = database(() => mongo.getUri('foodly_notes_stage2_connection'));
@@ -104,14 +107,25 @@ describe('Listado y cuotas con Mongo efímero aislado', () => {
     const response = await createRecipesHandler(db, env)(request, context);
     expect(response.statusCode).toBe(429);
   });
-  it('cuenta entradas inválidas en cuotas sin devolver recetas', async () => {
-    const handler = createRecipesHandler(db, env);
-    const response = await handler(event('/api/recipes', 'limit=101'), context);
-    expect(response.statusCode).toBe(400);
-    expect(JSON.parse(response.body!).message).toEqual(expect.any(Array));
-    const connection = await db.connect();
-    expect(await connection.collection('securitycounters').countDocuments()).toBe(2);
-  });
+  it.each([
+    ['/api/recipes', 'limit=101'],
+    ['/api/recipes/daily', 'lang=fr'],
+    ['/api/recipes/search', 'q='],
+    ['/api/recipes/0', ''],
+    ['/api/recipes/0/similar', 'lang=fr'],
+  ])(
+    'cuenta entrada inválida %s en ambas cuotas sin consultar proveedores',
+    async (path, query) => {
+      const handler = createRecipesHandler(db, env);
+      const response = await handler(event(path, query), context);
+      expect(response.statusCode).toBe(400);
+      expect(JSON.parse(response.body!).message).toEqual(expect.any(Array));
+      const connection = await db.connect();
+      const counters = await connection.collection('securitycounters').find().toArray();
+      expect(counters).toHaveLength(2);
+      expect(counters.every((counter) => counter.count === 1)).toBe(true);
+    },
+  );
   it('fallo inesperado de consulta conserva 500 sin filtrar detalles', async () => {
     const broken: Database = {
       ...db,

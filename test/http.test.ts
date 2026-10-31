@@ -1,11 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createHealthHandler } from '../src/health.ts';
-import { createRecipesHandler, storedQuery } from '../src/recipes.ts';
-import { configuration } from '../src/config.ts';
-import { tracker } from '../src/security.ts';
-import { database } from '../src/database.ts';
-import serverless from '../serverless.ts';
-import { routes } from '../src/routes.ts';
+import { createHealthHandler } from '../packages/runtime/src/health/handler.ts';
+import {
+  createRecipeHandler,
+  createRecipeGroupHandler,
+  storedQuery,
+} from '../packages/runtime/src/recipes/handler.ts';
+import { createRecipesHandler } from './gateway.ts';
+import { configuration } from '@foodly-notes/contracts/configuration';
+import { tracker } from '../packages/runtime/src/http/quotas.ts';
+import { database } from '../packages/runtime/src/runtime/database.ts';
+import { routes } from '@foodly-notes/contracts/routes';
 import { context, env, event } from './helpers.ts';
 
 describe('Contratos HTTP locales', () => {
@@ -16,11 +20,11 @@ describe('Contratos HTTP locales', () => {
     vi.restoreAllMocks();
   });
 
-  it('health responde sin URI Mongo, cuotas ni secretos y HEAD omite body', async () => {
-    const handler = createHealthHandler(env);
+  it('health valida configuración y Mongo sin cuotas ni proveedores y HEAD omite body', async () => {
+    const handler = createHealthHandler(env, { ping: async () => undefined });
     expect(await handler(event('/api/health'), context)).toMatchObject({
       statusCode: 200,
-      body: '{"status":"ok"}',
+      body: '[{"name":"configuration","status":"ok"},{"name":"mongo","status":"ok"}]',
       headers: { 'cache-control': 'no-store' },
     });
     expect(await handler(event('/api/health', '', '127.0.0.1', 'HEAD'), context)).toMatchObject({
@@ -28,21 +32,7 @@ describe('Contratos HTTP locales', () => {
       body: '',
     });
   });
-  it('preflight permite solo el origen configurado, incluyendo Capacitor', async () => {
-    const handler = createHealthHandler(env);
-    const request = event('/api/recipes', '', '127.0.0.1', 'OPTIONS');
-    request.headers.origin = 'capacitor://localhost';
-    const response = await handler(request, context);
-    expect(response).toMatchObject({
-      statusCode: 204,
-      headers: { 'access-control-allow-origin': 'capacitor://localhost' },
-    });
-    request.headers.origin = 'https://otro.example';
-    expect((await handler(request, context)).headers).not.toHaveProperty(
-      'access-control-allow-origin',
-    );
-  });
-  it('errores preservan JSON, CORS, no-store y headers de seguridad', async () => {
+  it('errores de handler preservan JSON, no-store y headers de seguridad', async () => {
     const response = await createHealthHandler({ ...env, NODE_ENV: 'production' })(
       event('/api/other'),
       context,
@@ -50,7 +40,6 @@ describe('Contratos HTTP locales', () => {
     expect(response.statusCode).toBe(404);
     expect(JSON.parse(response.body!)).toMatchObject({ statusCode: 404, error: 'Not Found' });
     expect(response.headers).toMatchObject({
-      'access-control-allow-origin': 'https://foodlynotes.app',
       'strict-transport-security': 'max-age=31536000',
       'x-content-type-options': 'nosniff',
     });
@@ -75,7 +64,7 @@ describe('Contratos HTTP locales', () => {
     const response = await createRecipesHandler(db, env)(event(), context);
     expect(response).toMatchObject({
       statusCode: 503,
-      headers: { 'retry-after': '5', 'access-control-allow-origin': 'https://foodlynotes.app' },
+      headers: { 'retry-after': '5' },
     });
     expect(response.body).not.toMatch(/MONGO_URI|mongoose/);
   });
@@ -119,14 +108,25 @@ describe('Contratos HTTP locales', () => {
     expect(() => configuration({ ...env, RATE_LIMIT_GLOBAL: '-1' })).toThrow();
     expect(configuration({ ...env, RATE_LIMIT_GLOBAL: '10' }).globalLimit).toBe(10);
   });
-  it('Gateway y handlers usan los mismos métodos/rutas sin rutas de proveedores anticipadas', () => {
-    expect(serverless.functions.health.events.slice(0, 2)).toEqual(
-      ['GET', 'HEAD'].map((method) => ({ httpApi: { method, path: routes.health.path } })),
+  it('cada grupo rechaza rutas de otros grupos antes de consultar persistencia', async () => {
+    const db = database(() => undefined);
+    const requests = [
+      { group: 'catalog', path: '/api/recipes/7' },
+      { group: 'detail', path: '/api/recipes/daily' },
+      { group: 'ingredients', path: '/api/recipes/search' },
+    ] as const;
+    for (const { group, path } of requests) {
+      expect(
+        (await createRecipeGroupHandler(group, db, env)(event(path), context)).statusCode,
+      ).toBe(404);
+    }
+  });
+  it('un handler fijo rechaza eventos de otra integración sin enrutar por la URL', async () => {
+    const fixed = createRecipeHandler(
+      routes.detail,
+      database(() => undefined),
+      env,
     );
-    expect(serverless.functions.recipes.events).toEqual(
-      ['GET', 'HEAD'].map((method) => ({ httpApi: { method, path: routes.recipes.path } })),
-    );
-    expect(serverless.functions.health).not.toHaveProperty('environment');
-    expect(serverless.provider.runtime).toBe('nodejs24.x');
+    expect((await fixed(event('/api/recipes/daily'), context)).statusCode).toBe(404);
   });
 });

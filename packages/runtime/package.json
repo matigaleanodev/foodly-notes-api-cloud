@@ -1,0 +1,29 @@
+{
+  "name": "@foodly-notes/runtime",
+  "version": "1.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./health": "./src/health/handler.ts",
+    "./recipes": "./src/recipes/handler.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --project tsconfig.json",
+    "build": "node ../../scripts/build.mjs"
+  },
+  "dependencies": {
+    "@aws-sdk/client-ssm": "3.1157.0",
+    "@aws-sdk/credential-providers": "3.1157.0",
+    "@foodly-notes/contracts": "1.1.0",
+    "@middy/core": "7.9.2",
+    "ajv": "8.20.0",
+    "axios": "1.21.0",
+    "ipaddr.js": "2.5.0",
+    "mongoose": "9.11.4",
+    "sanitize-html": "2.18.1"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "8.10.164",
+    "@types/sanitize-html": "2.16.2"
+  }
+}

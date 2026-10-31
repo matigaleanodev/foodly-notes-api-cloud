@@ -10,5 +10,5 @@
     "skipLibCheck": true,
     "types": ["node", "aws-lambda"]
   },
-  "include": ["src/**/*.ts", "test/**/*.ts", "serverless.ts", "vitest.config.ts"]
+  "include": ["packages/**/*.ts", "test/**/*.ts", "vitest.config.ts"]
 }

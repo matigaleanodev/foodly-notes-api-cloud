@@ -1,0 +1,50 @@
+import { configuration } from '@foodly-notes/contracts/configuration';
+
+export const ACCOUNT = '650387442642';
+
+export const REGION = 'us-east-1';
+
+export const STACK_NAME = 'foodly-notes-api-cloud-test';
+
+/** Solo parámetros no sensibles; los valores de SSM se leen dentro de Lambda. */
+export function deploymentConfiguration(env: NodeJS.ProcessEnv) {
+  const required = (name: string, pattern: RegExp) => {
+    const value = env[name] ?? '';
+    if (!pattern.test(value)) throw new Error(`Invalid or missing ${name}.`);
+    return value;
+  };
+  const role = (name: string) =>
+    required(name, /^arn:aws:iam::650387442642:role\/foodly-notes-test-[\w/-]+$/);
+  const parameter = (name: string, suffix: string) =>
+    required(name, new RegExp(`^/foodly-notes/test/${suffix}$`));
+  const origins = configuration({
+    NODE_ENV: 'production',
+    CORS_ORIGIN: env.TEST_CORS_ORIGIN,
+  }).origins;
+  if (origins.some((origin) => !/^https?:\/\//.test(origin)))
+    throw new Error('HTTP API requires HTTP(S) CORS origins.');
+  for (const name of ['PUBLIC_ACCESS_ENABLED', 'REAL_PROVIDERS_ENABLED'])
+    if (env[name] !== undefined && !['true', 'false'].includes(env[name]!))
+      throw new Error(`Invalid ${name}.`);
+  const publicAccess = env.PUBLIC_ACCESS_ENABLED === 'true';
+  const realProviders = env.REAL_PROVIDERS_ENABLED === 'true';
+  if (realProviders && !publicAccess)
+    throw new Error('Real providers require protected public access.');
+  return {
+    configurationRevision: required(
+      'TEST_RUNTIME_CONFIGURATION_REVISION',
+      /^[A-Za-z0-9._-]{1,128}$/,
+    ),
+    publicAccess,
+    realProviders,
+    healthMongoParameterName: parameter('TEST_HEALTH_MONGO_PARAMETER_NAME', 'mongo-health'),
+    mongoParameterName: parameter('TEST_MONGO_PARAMETER_NAME', 'mongo'),
+    providerParameterName: parameter('TEST_PROVIDER_PARAMETER_NAME', 'providers'),
+    healthRoleArn: role('TEST_HEALTH_ROLE_ARN'),
+    recipesRoleArn: role('TEST_RECIPES_ROLE_ARN'),
+    deploymentBucket: required('TEST_DEPLOYMENT_BUCKET', /^foodly-notes-test-[a-z0-9-]+$/),
+    origins,
+  };
+}
+
+export type DeploymentConfiguration = ReturnType<typeof deploymentConfiguration>;

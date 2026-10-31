@@ -1,4 +1,6 @@
 import middy from '@middy/core';
+import { cloudflareVisitor, trustedOrigin } from './ingress.ts';
+import { requestLogContext } from '../runtime/request-context.ts';
 import type {
   APIGatewayProxyEventV2,
   APIGatewayProxyStructuredResultV2,
@@ -6,11 +8,13 @@ import type {
 } from 'aws-lambda';
 import { randomUUID } from 'node:crypto';
 import { isIP } from 'node:net';
-import type { Configuration } from './config.ts';
-import type { Route } from './routes.ts';
+import type { Configuration } from '@foodly-notes/contracts/configuration';
+import { methodsFor, type Route } from '@foodly-notes/contracts/routes';
 
 export type HttpEvent = APIGatewayProxyEventV2;
+
 export type HttpResult = APIGatewayProxyStructuredResultV2;
+
 export type HttpHandler = (event: HttpEvent, context: Context) => Promise<HttpResult>;
 
 export class HttpError extends Error {
@@ -36,9 +40,16 @@ export function json(
   };
 }
 
-export function http(route: Route, config: Configuration, handler: HttpHandler) {
+/** Aplica el contrato HTTP común; los logs usan rutas declaradas y omiten payloads y consultas. */
+export function http(
+  route: Route,
+  config: Configuration,
+  handler: HttpHandler,
+  load?: () => Promise<NodeJS.ProcessEnv>,
+) {
   type Internal = { foodlyHttp: { requestId: string; started: number } };
   type Request = middy.Request<HttpEvent, HttpResult, Error, Context, Internal>;
+  const requestIds = new WeakMap<HttpEvent, string>();
   const finish = (request: Request) => {
     const state = request.internal.foodlyHttp;
     const headers: Record<string, string> = {
@@ -60,17 +71,6 @@ export function http(route: Route, config: Configuration, handler: HttpHandler) 
       vary: 'Origin',
     };
     if (config.production) headers['strict-transport-security'] = 'max-age=31536000';
-    const origin = Object.entries(request.event.headers ?? {}).find(
-      ([key]) => key.toLowerCase() === 'origin',
-    )?.[1];
-    if (origin && config.origins.includes(origin)) {
-      headers['access-control-allow-origin'] = origin;
-      headers['access-control-allow-methods'] = 'GET,POST,OPTIONS';
-      headers['access-control-allow-headers'] = 'Content-Type,Accept';
-      headers['access-control-expose-headers'] =
-        'Retry-After,X-RateLimit-Limit,X-RateLimit-Remaining,X-RateLimit-Reset';
-      headers['access-control-max-age'] = '600';
-    }
     request.response = {
       ...request.response,
       headers: { ...headers, ...request.response?.headers },
@@ -87,12 +87,28 @@ export function http(route: Route, config: Configuration, handler: HttpHandler) 
   };
   return middy<HttpEvent, HttpResult, Error, Context, Internal>({ timeoutEarlyInMillis: 0 })
     .use({
-      before(request) {
+      async before(request) {
         request.context.callbackWaitsForEmptyEventLoop = false;
         request.internal.foodlyHttp = { requestId: randomUUID(), started: performance.now() };
         const { event } = request;
+        requestIds.set(event, request.internal.foodlyHttp.requestId);
         if (event.version !== '2.0' || !isIP(event.requestContext.http.sourceIp)) {
           throw new HttpError(403, 'Forbidden', 'Forbidden');
+        }
+        if (load) {
+          const visitor = cloudflareVisitor(event);
+          if (!visitor) throw new HttpError(403, 'Forbidden', 'Forbidden');
+          let expected: string | undefined;
+          try {
+            expected = (await load()).ORIGIN_VERIFY_SECRET;
+          } catch {
+            throw new HttpError(503, 'Service unavailable.', 'Service Unavailable', {
+              'retry-after': '5',
+            });
+          }
+          if (!trustedOrigin(event.headers['x-foodly-origin'], expected))
+            throw new HttpError(403, 'Forbidden', 'Forbidden');
+          event.requestContext.http.sourceIp = visitor;
         }
         if (
           event.rawPath.length + (event.rawQueryString ? event.rawQueryString.length + 1 : 0) >
@@ -100,11 +116,8 @@ export function http(route: Route, config: Configuration, handler: HttpHandler) 
         ) {
           throw new HttpError(414, 'Request URL too long.');
         }
-        if (event.requestContext.http.method === 'OPTIONS') return;
-        if (
-          event.rawPath.replace(/\/$/, '') !== route.path ||
-          !['GET', 'HEAD'].includes(event.requestContext.http.method)
-        ) {
+        // La ruta se resolvió en Gateway; se valida la integración sin volver a enrutar por URL.
+        if (!methodsFor(route).some((method) => event.routeKey === `${method} ${route.path}`)) {
           throw new HttpError(
             404,
             `Cannot ${event.requestContext.http.method} ${event.rawPath}`,
@@ -131,8 +144,6 @@ export function http(route: Route, config: Configuration, handler: HttpHandler) 
       },
     })
     .handler((event, context) =>
-      event.requestContext.http.method === 'OPTIONS'
-        ? Promise.resolve(json(204, undefined))
-        : handler(event, context),
+      requestLogContext.run({ requestId: requestIds.get(event)! }, () => handler(event, context)),
     );
 }

@@ -1,0 +1,6 @@
+{
+  "app": "node packages/infrastructure/src/app.ts",
+  "output": "cdk.out",
+  "versionReporting": false,
+  "analyticsReporting": false
+}

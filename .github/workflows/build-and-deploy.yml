@@ -2,16 +2,266 @@ name: build and deploy
 
 on:
   workflow_dispatch:
+    inputs:
+      reviewed_sha:
+        description: SHA completo de dev revisado para empaquetar
+        required: true
+        type: string
+      deploy:
+        description: Ejecutar el despliegue test previamente autorizado
+        type: boolean
+        default: false
+      recover_empty_stack:
+        description: Recuperación explícita de ROLLBACK_COMPLETE sin recursos conservados
+        type: boolean
+        default: false
 
 permissions: {}
 
+concurrency:
+  group: foodly-notes-test-delivery
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  AWS_EC2_METADATA_DISABLED: 'true'
+  TEST_RUNTIME_CONFIGURATION_REVISION: ${{ vars.TEST_RUNTIME_CONFIGURATION_REVISION }}
+  TEST_HEALTH_MONGO_PARAMETER_NAME: ${{ vars.TEST_HEALTH_MONGO_PARAMETER_NAME }}
+  TEST_MONGO_PARAMETER_NAME: ${{ vars.TEST_MONGO_PARAMETER_NAME }}
+  TEST_PROVIDER_PARAMETER_NAME: ${{ vars.TEST_PROVIDER_PARAMETER_NAME }}
+  TEST_RECIPES_ROLE_ARN: ${{ vars.TEST_RECIPES_ROLE_ARN }}
+  TEST_HEALTH_ROLE_ARN: ${{ vars.TEST_HEALTH_ROLE_ARN }}
+  TEST_CLOUDFORMATION_ROLE_ARN: ${{ vars.TEST_CLOUDFORMATION_ROLE_ARN }}
+  TEST_DEPLOYMENT_BUCKET: ${{ vars.TEST_DEPLOYMENT_BUCKET }}
+  TEST_CORS_ORIGIN: ${{ vars.TEST_CORS_ORIGIN }}
+  PUBLIC_ACCESS_ENABLED: ${{ vars.PUBLIC_ACCESS_ENABLED }}
+  REAL_PROVIDERS_ENABLED: ${{ vars.REAL_PROVIDERS_ENABLED }}
+
 jobs:
-  configuration-required:
+  package:
+    if: github.ref == 'refs/heads/dev'
     runs-on: ubuntu-24.04
-    timeout-minutes: 1
+    environment: test
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      artifact_id: ${{ steps.artifact.outputs.artifact-id }}
+      checksum: ${{ steps.review.outputs.checksum }}
     steps:
-      - name: Require deployment implementation
-        shell: bash
+      - name: Checkout reviewed revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify reviewed revision
+        env:
+          REVIEWED_SHA: ${{ inputs.reviewed_sha }}
         run: |
-          echo '::error::El despliegue requiere implementar y revisar build, configuración Serverless, OIDC y recuperación.'
-          exit 1
+          [[ "$REVIEWED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$REVIEWED_SHA"
+      - name: Setup Node
+        uses: actions/setup-node@v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Synthesize and review CDK assembly
+        id: review
+        env:
+          AWS_ACCESS_KEY_ID: local-synth
+          AWS_SECRET_ACCESS_KEY: local-synth
+          AWS_SHARED_CREDENTIALS_FILE: /dev/null
+          AWS_CONFIG_FILE: /dev/null
+        run: |
+          npm run build
+          npm run synth
+          node scripts/review-package.mjs cdk.out
+          python3 scripts/review_bundle.py create . delivery "$GITHUB_SHA" "$(node --version)"
+          echo "checksum=$(sha256sum delivery/checksums.json | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Save reviewed artifacts
+        id: artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-delivery-${{ github.sha }}
+          include-hidden-files: true
+          retention-days: 30
+          path: delivery/
+
+  prepare:
+    needs: package
+    if: inputs.deploy && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-24.04
+    environment: test
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    outputs:
+      stack: ${{ steps.plan.outputs.stack }}
+      changeset: ${{ steps.plan.outputs.changeset }}
+      digest: ${{ steps.plan.outputs.digest }}
+    steps:
+      - name: Require authorization for this revision
+        env:
+          REVIEWED_SHA: ${{ inputs.reviewed_sha }}
+          APPROVED_SHA: ${{ vars.TEST_DEPLOYMENT_APPROVED_SHA }}
+          NETWORK_REVIEWED: ${{ vars.TEST_NETWORK_REVIEWED }}
+          RECOVERY_REVIEWED: ${{ vars.TEST_RECOVERY_REVIEWED }}
+        run: |
+          test "$APPROVED_SHA" = "$REVIEWED_SHA"
+          test "$NETWORK_REVIEWED" = true
+          test "$RECOVERY_REVIEWED" = true
+      - name: Checkout reviewed revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Restore reviewed artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.package.outputs.artifact_id }}
+          path: delivery
+      - name: Verify reviewed artifacts
+        env:
+          EXPECTED_CHECKSUM: ${{ needs.package.outputs.checksum }}
+        run: |
+          test "$(sha256sum delivery/checksums.json | cut -d ' ' -f1)" = "$EXPECTED_CHECKSUM"
+          python3 scripts/review_bundle.py verify delivery "$GITHUB_SHA"
+          cmp package-lock.json delivery/package-lock.json
+          node scripts/review-package.mjs delivery/cdk.out
+      - name: Assume test pipeline role
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.TEST_PIPELINE_ROLE_ARN }}
+          aws-region: us-east-1
+          allowed-account-ids: '650387442642'
+          role-session-name: foodly-prepare-${{ github.run_id }}
+      - name: Prepare and review change set
+        id: plan
+        env:
+          PIPELINE_ROLE_ARN: ${{ vars.TEST_PIPELINE_ROLE_ARN }}
+          RECOVER_EMPTY_STACK: ${{ inputs.recover_empty_stack }}
+        run: |
+          [[ "$PIPELINE_ROLE_ARN" =~ ^arn:aws:iam::650387442642:role/foodly-notes-test-[a-zA-Z0-9_-]+$ ]]
+          identity="$(aws sts get-caller-identity --region us-east-1 --output json)"
+          test "$(jq -r .Account <<< "$identity")" = 650387442642
+          test "$(jq -r .Arn <<< "$identity" | cut -d/ -f2)" = "${PIPELINE_ROLE_ARN##*/}"
+          [[ "$TEST_CLOUDFORMATION_ROLE_ARN" =~ ^arn:aws:iam::650387442642:role/foodly-notes-test-[a-zA-Z0-9_-]+$ ]]
+          set -euo pipefail
+          if aws cloudformation describe-stacks --region us-east-1 --stack-name foodly-notes-api-cloud-test > prior-stack.json 2> prior-error.txt; then
+            status=$(jq -r '.Stacks[0].StackStatus' prior-stack.json)
+            case "$status" in
+              CREATE_COMPLETE|UPDATE_COMPLETE|UPDATE_ROLLBACK_COMPLETE) ;;
+              REVIEW_IN_PROGRESS)
+                aws cloudformation describe-stack-resources --region us-east-1 --stack-name foodly-notes-api-cloud-test > prior-resources.json
+                jq -e '.StackResources | length == 0' prior-resources.json
+                ;;
+              ROLLBACK_COMPLETE)
+                test "$RECOVER_EMPTY_STACK" = true
+                failed_stack=$(jq -r '.Stacks[0].StackId' prior-stack.json)
+                [[ "$failed_stack" =~ ^arn:aws:cloudformation:us-east-1:650387442642:stack/foodly-notes-api-cloud-test/[A-Za-z0-9-]+$ ]]
+                aws cloudformation describe-stack-resources --region us-east-1 --stack-name "$failed_stack" > prior-resources.json
+                jq -e 'all(.StackResources[]; .ResourceStatus == "DELETE_COMPLETE")' prior-resources.json
+                identity=$(aws sts get-caller-identity --region us-east-1 --output json)
+                test "$(jq -r .Account <<< "$identity")" = 650387442642
+                test "$(jq -r .Arn <<< "$identity" | cut -d/ -f2)" = "${PIPELINE_ROLE_ARN##*/}"
+                aws cloudformation delete-stack --region us-east-1 --stack-name "$failed_stack" --role-arn "$TEST_CLOUDFORMATION_ROLE_ARN"
+                aws cloudformation wait stack-delete-complete --region us-east-1 --stack-name "$failed_stack"
+                ;;
+              *) echo "Revisar recuperación del estado $status antes de preparar."; exit 1 ;;
+            esac
+          else
+            grep -q 'ValidationError.*Stack with id foodly-notes-api-cloud-test does not exist' prior-error.txt || { cat prior-error.txt; exit 1; }
+          fi
+          identity=$(aws sts get-caller-identity --region us-east-1 --output json)
+          test "$(jq -r .Account <<< "$identity")" = 650387442642
+          test "$(jq -r .Arn <<< "$identity" | cut -d/ -f2)" = "${PIPELINE_ROLE_ARN##*/}"
+          change_set="foodly-notes-api-cloud-test-${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          npm exec --workspace=@foodly-notes/infrastructure -- cdk deploy --app ../../delivery/cdk.out FoodlyNotesTest --role-arn "$TEST_CLOUDFORMATION_ROLE_ARN" --method prepare-change-set --change-set-name "$change_set" --require-approval never --no-notices
+          aws cloudformation describe-change-set --region us-east-1 --stack-name foodly-notes-api-cloud-test --change-set-name "$change_set" > targets.json
+          stack=$(jq -r .StackId targets.json)
+          changeset=$(jq -r .ChangeSetId targets.json)
+          digest=$(python3 scripts/review_changeset.py delivery/cdk.out "$stack" "$changeset" changeset-review.json)
+          echo "stack=$stack" >> "$GITHUB_OUTPUT"
+          echo "changeset=$changeset" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "Changeset revisado: $changeset; recibo: $digest" >> "$GITHUB_STEP_SUMMARY"
+      - name: Retain prepared change set receipt
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: candidate-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: changeset-review.json
+          if-no-files-found: error
+          retention-days: 30
+
+  execute:
+    needs: [package, prepare]
+    runs-on: ubuntu-24.04
+    environment: test
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    env:
+      STACK_ARN: ${{ needs.prepare.outputs.stack }}
+      CHANGESET_ARN: ${{ needs.prepare.outputs.changeset }}
+      REVIEWED_DIGEST: ${{ needs.prepare.outputs.digest }}
+      EXPECTED_CHECKSUM: ${{ needs.package.outputs.checksum }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - name: Restore the same reviewed assembly
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.package.outputs.artifact_id }}
+          path: delivery
+      - name: Verify integrity before authentication
+        run: |
+          set -euo pipefail
+          test "$(sha256sum delivery/checksums.json | cut -d ' ' -f1)" = "$EXPECTED_CHECKSUM"
+          python3 scripts/review_bundle.py verify delivery "$GITHUB_SHA"
+          cmp package-lock.json delivery/package-lock.json
+      - name: Assume execution role
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::650387442642:role/foodly-notes-test-execute
+          aws-region: us-east-1
+          allowed-account-ids: '650387442642'
+          role-session-name: foodly-execute-${{ github.run_id }}
+      - name: Revalidate live receipt and execute reviewed change set
+        run: |
+          set -euo pipefail
+          identity=$(aws sts get-caller-identity --region us-east-1 --output json)
+          test "$(jq -r .Account <<< "$identity")" = 650387442642
+          [[ "$(jq -r .Arn <<< "$identity")" == arn:aws:sts::650387442642:assumed-role/foodly-notes-test-execute/* ]]
+          digest=$(python3 scripts/review_changeset.py delivery/cdk.out "$STACK_ARN" "$CHANGESET_ARN" execution-review.json)
+          test "$digest" = "$REVIEWED_DIGEST"
+          status=$(aws cloudformation describe-stacks --region us-east-1 --stack-name "$STACK_ARN" --query 'Stacks[0].StackStatus' --output text)
+          if [[ "$status" == REVIEW_IN_PROGRESS ]]; then waiter=stack-create-complete; else waiter=stack-update-complete; fi
+          aws cloudformation execute-change-set --region us-east-1 --stack-name "$STACK_ARN" --change-set-name "$CHANGESET_ARN" --client-request-token "github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          aws cloudformation wait "$waiter" --region us-east-1 --stack-name "$STACK_ARN"
+          aws cloudformation describe-stacks --region us-east-1 --stack-name "$STACK_ARN" --query 'Stacks[0].{StackId:StackId,Status:StackStatus,Role:RoleARN,Outputs:Outputs}' > result.json
+          jq -e '.Status == "CREATE_COMPLETE" or .Status == "UPDATE_COMPLETE"' result.json
+      - name: Retain execution evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: candidate-execution-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            execution-review.json
+            result.json
+          if-no-files-found: error
+          retention-days: 30

@@ -1,0 +1,10 @@
+{
+  "TEST_RUNTIME_CONFIGURATION_REVISION": "initial",
+  "TEST_HEALTH_MONGO_PARAMETER_NAME": "/foodly-notes/test/mongo-health",
+  "TEST_MONGO_PARAMETER_NAME": "/foodly-notes/test/mongo",
+  "TEST_PROVIDER_PARAMETER_NAME": "/foodly-notes/test/providers",
+  "TEST_RECIPES_ROLE_ARN": "arn:aws:iam::650387442642:role/foodly-notes-test-recipes",
+  "TEST_HEALTH_ROLE_ARN": "arn:aws:iam::650387442642:role/foodly-notes-test-health",
+  "TEST_DEPLOYMENT_BUCKET": "foodly-notes-test-synthetic-artifacts",
+  "TEST_CORS_ORIGIN": "https://test.foodlynotes.app,https://localhost,http://localhost"
+}

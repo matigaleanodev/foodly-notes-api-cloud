@@ -5,7 +5,7 @@ export interface Configuration {
   globalLimit: number;
 }
 
-export function configuration(env: NodeJS.ProcessEnv = process.env): Configuration {
+export function configuration(env: Readonly<Record<string, string | undefined>>): Configuration {
   const production = env.NODE_ENV === 'production';
   const origins = (env.CORS_ORIGIN ?? (production ? '' : 'http://localhost:8100'))
     .split(',')

@@ -1,3 +1,5 @@
+import { fileURLToPath } from 'node:url';
+process.chdir(fileURLToPath(new URL('..', import.meta.url)));
 import { build } from 'esbuild';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
@@ -5,7 +7,8 @@ import { execFileSync } from 'node:child_process';
 await mkdir('dist', { recursive: true });
 for (const name of ['health', 'recipes']) {
   const result = await build({
-    entryPoints: [`src/${name}.ts`],
+    absWorkingDir: process.cwd(),
+    entryPoints: [`packages/runtime/src/${name}/handler.ts`],
     outfile: `dist/${name}.mjs`,
     bundle: true,
     platform: 'node',
@@ -18,11 +21,15 @@ for (const name of ['health', 'recipes']) {
     legalComments: 'none',
   });
   const inputs = Object.keys(result.metafile.inputs);
-  if (inputs.some((file) => !file.startsWith('src/') && !file.startsWith('node_modules/'))) {
+  if (
+    inputs.some(
+      (file) =>
+        !file.startsWith('packages/runtime/src/') &&
+        !file.startsWith('packages/contracts/src/') &&
+        !file.startsWith('node_modules/'),
+    )
+  ) {
     throw new Error('Unexpected input in runtime package.');
-  }
-  if (name === 'health' && inputs.some((file) => /mongoose|mongodb|database/.test(file))) {
-    throw new Error('Health must be independent of MongoDB.');
   }
   const file = `dist/${name}.mjs`;
   const contents = await readFile(file, 'utf8');
@@ -39,16 +46,68 @@ for (const name of ['health', 'recipes']) {
   console.info(`${name}.zip: un único bundle, sin archivos locales privados.`);
 }
 
-const { event, context } = await import('../test/helpers.ts');
+const { event, context, env } = await import('../test/helpers.ts');
 const { createHealthHandler } = await import('../dist/health.mjs');
-const { createRecipesHandler } = await import('../dist/recipes.mjs');
+const bundled = await import('../dist/recipes.mjs');
+const { routes, recipeRoutes } = await import('@foodly-notes/contracts/routes');
 const { default: assert } = await import('node:assert/strict');
-assert.equal((await createHealthHandler()(event('/api/health'), context)).statusCode, 200);
+assert.equal(
+  (await createHealthHandler(env, { ping: async () => undefined })(event('/api/health'), context))
+    .statusCode,
+  200,
+);
 const localStore = {
   increment: async () => 1,
+  recipesByIds: async () => [await localStore.recipe(7)],
   list: async () => [{ sourceId: 7, base: { title: 'Local recipe' } }],
+  recipe: async (sourceId) => ({
+    sourceId,
+    source: 'spoonacular',
+    originalLang: 'en',
+    base: {
+      title: 'Local recipe',
+      summary: '<b>Safe</b><script>bad()</script>',
+      instructions: [],
+      ingredients: [],
+    },
+    meta: {},
+    translations: {},
+  }),
+  daily: async () => ({ recipes: [{ sourceId: 7, title: 'Local recipe' }] }),
 };
-const response = await createRecipesHandler(localStore)(event(), context);
-assert.equal(response.statusCode, 200);
-assert.deepEqual(JSON.parse(response.body), [{ sourceId: 7, title: 'Local recipe' }]);
-console.info('Smoke de ambos bundles aprobado sin conexiones externas.');
+const localProviders = {
+  search: async () => [{ id: 7, title: 'Local recipe', image: null }],
+  similar: async () => [{ sourceId: 7, title: 'Local recipe' }],
+  detail: async () => {
+    throw new Error('Unexpected cache miss');
+  },
+  daily: async () => {
+    throw new Error('Unexpected cache miss');
+  },
+  translate: async () => {
+    throw new Error('Unexpected translation');
+  },
+};
+const samples = {
+  getAllRecipes: event(),
+  getDailyRecipes: event('/api/recipes/daily'),
+  searchRecipes: event('/api/recipes/search', 'q=rice'),
+  getRecipeDetails: event('/api/recipes/7'),
+  getSimilarRecipes: event('/api/recipes/7/similar'),
+  getIngredients: event('/api/recipes/ingredients', '', '127.0.0.1', 'POST'),
+};
+samples.getIngredients.headers['content-type'] = 'application/json';
+samples.getIngredients.body = JSON.stringify({ sourceIds: [7] });
+for (const route of recipeRoutes) {
+  assert.equal(typeof bundled[route.group], 'function');
+  const fixed = bundled.createRecipeGroupHandler(route.group, localStore, env, localProviders);
+  const response = await fixed(samples[route.operation], context);
+  assert.equal(response.statusCode, route.method === 'POST' ? 201 : 200);
+  if (route === routes.detail) assert.equal(JSON.parse(response.body).summary, '<b>Safe</b>');
+}
+assert.equal(bundled.handler, undefined);
+for (const removed of ['list', 'daily', 'search', 'similar'])
+  assert.equal(bundled[removed], undefined);
+console.info(
+  'Smoke de siete operaciones en cuatro exports por responsabilidad aprobado sin conexiones externas.',
+);
