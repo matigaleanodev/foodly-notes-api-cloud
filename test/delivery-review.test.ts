@@ -102,8 +102,22 @@ assert not stable_permission(resource, [function_change], template, None)
 function['Properties']['Environment'] = {'Variables': {'PUBLIC_ACCESS_ENABLED': 'true', 'CORS_ORIGIN': PRODUCTION_ORIGINS}}
 function_change['ResourceChange']['Details'].append({'Target': {'Attribute': 'Properties', 'Name': 'Environment', 'RequiresRecreation': 'Never'}, 'Evaluation': 'Static', 'ChangeSource': 'DirectModification'})
 assert stable_permission(resource, [function_change], template, prior)
-for key, value in [('MONGO_SECRET_ARN', 'another-secret'), ('CORS_ORIGIN', '*'), ('PUBLIC_ACCESS_ENABLED', 'false')]:
+for key, value in [('MONGO_PARAMETER_NAME', 'another-secret'), ('CORS_ORIGIN', '*'), ('PUBLIC_ACCESS_ENABLED', 'false')]:
     variables = function['Properties']['Environment']['Variables']
+    old = variables.get(key)
+    variables[key] = value
+    assert not stable_permission(resource, [function_change], template, prior)
+    if old is None: del variables[key]
+    else: variables[key] = old
+
+# Referencias exactas de la migración y revisión de cache: ningún otro cambio de entorno.
+previous_variables = prior['Resources']['healthFunction']['Properties'].setdefault('Environment', {}).setdefault('Variables', {})
+previous_variables['MONGO_SECRET_ARN'] = 'arn:aws:secretsmanager:us-east-1:650387442642:secret:foodly-notes/test/mongo-health-Ab1234'
+variables = function['Properties']['Environment']['Variables']
+variables['MONGO_PARAMETER_NAME'] = '/foodly-notes/test/mongo-health'
+variables['RUNTIME_CONFIGURATION_REVISION'] = 'sync-42'
+assert stable_permission(resource, [function_change], template, prior)
+for key, value in [('MONGO_PARAMETER_NAME', '/foodly-notes/test/mongo'), ('PROVIDER_PARAMETER_NAME', '/foodly-notes/test/providers'), ('RUNTIME_CONFIGURATION_REVISION', 'bad value')]:
     old = variables.get(key)
     variables[key] = value
     assert not stable_permission(resource, [function_change], template, prior)

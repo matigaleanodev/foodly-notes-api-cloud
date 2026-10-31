@@ -8,7 +8,7 @@ API serverless de Foodly Notes, escrita en TypeScript con handlers para AWS Lamb
 
 ## Stack y arquitectura
 
-Node.js 24, TypeScript estricto y ESM; HTTP API Gateway v2, Lambda ARM64, Middy, MongoDB mediante Mongoose y Secrets Manager. Tres npm workspaces privados separan infraestructura, runtime y contratos neutrales, con un único lockfile raíz. AWS CDK y GitHub Actions resuelven empaquetado y entrega mediante OIDC y artifacts verificados.
+Node.js 24, TypeScript estricto y ESM; HTTP API Gateway v2, Lambda ARM64, Middy, MongoDB mediante Mongoose y SSM Parameter Store (SecureString). Tres npm workspaces privados separan infraestructura, runtime y contratos neutrales, con un único lockfile raíz. AWS CDK y GitHub Actions resuelven empaquetado y entrega mediante OIDC y artifacts verificados.
 
 Cuatro grupos Lambda —health, catalog, detail e ingredients— comparten dos ZIP: health y recipes. Spoonacular provee recetas y Azure Translator realiza las traducciones. Mongo conserva recetas, cachés, cuotas y presupuestos UTC. Favoritos, listas de compras y traducciones de UI pertenecen al frontend Angular/Ionic.
 

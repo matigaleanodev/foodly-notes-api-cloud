@@ -93,13 +93,13 @@ for (const fn of ofType('AWS::Lambda::Function')) {
   assert.ok(name);
   assert.equal(fn.Properties.Handler, name === 'health' ? 'health.handler' : `recipes.${name}`);
   assert.equal(fn.Properties.Runtime, 'nodejs24.x');
-  assert.ok(fn.Properties.Environment.Variables.MONGO_SECRET_ARN);
+  assert.ok(fn.Properties.Environment.Variables.MONGO_PARAMETER_NAME);
   assert.equal(
     fn.Properties.Environment.Variables.PUBLIC_ACCESS_ENABLED,
     publicAccess ? 'true' : undefined,
   );
   if (name === 'health')
-    assert.equal(fn.Properties.Environment.Variables.PROVIDER_SECRET_ARN, undefined);
+    assert.equal(fn.Properties.Environment.Variables.PROVIDER_PARAMETER_NAME, undefined);
   else {
     const enabled = fn.Properties.Environment.Variables.REAL_PROVIDERS_ENABLED;
     assert.ok(enabled === 'false' || (publicAccess && enabled === 'true'));

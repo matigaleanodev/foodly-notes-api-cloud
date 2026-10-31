@@ -6,7 +6,7 @@ export const REGION = 'us-east-1';
 
 export const STACK_NAME = 'foodly-notes-api-cloud-test';
 
-/** Solo parámetros no sensibles; los valores de Secrets Manager se leen dentro de Lambda. */
+/** Solo parámetros no sensibles; los valores de SSM se leen dentro de Lambda. */
 export function deploymentConfiguration(env: NodeJS.ProcessEnv) {
   const required = (name: string, pattern: RegExp) => {
     const value = env[name] ?? '';
@@ -15,13 +15,8 @@ export function deploymentConfiguration(env: NodeJS.ProcessEnv) {
   };
   const role = (name: string) =>
     required(name, /^arn:aws:iam::650387442642:role\/foodly-notes-test-[\w/-]+$/);
-  const secret = (name: string, suffix: string) =>
-    required(
-      name,
-      new RegExp(
-        `^arn:aws:secretsmanager:us-east-1:650387442642:secret:foodly-notes/test/${suffix}-[A-Za-z0-9]{6}$`,
-      ),
-    );
+  const parameter = (name: string, suffix: string) =>
+    required(name, new RegExp(`^/foodly-notes/test/${suffix}$`));
   const origins = configuration({
     NODE_ENV: 'production',
     CORS_ORIGIN: env.TEST_CORS_ORIGIN,
@@ -36,11 +31,15 @@ export function deploymentConfiguration(env: NodeJS.ProcessEnv) {
   if (realProviders && !publicAccess)
     throw new Error('Real providers require protected public access.');
   return {
+    configurationRevision: required(
+      'TEST_RUNTIME_CONFIGURATION_REVISION',
+      /^[A-Za-z0-9._-]{1,128}$/,
+    ),
     publicAccess,
     realProviders,
-    healthMongoSecretArn: secret('TEST_HEALTH_MONGO_SECRET_ARN', 'mongo-health'),
-    mongoSecretArn: secret('TEST_MONGO_SECRET_ARN', 'mongo'),
-    providerSecretArn: secret('TEST_PROVIDER_SECRET_ARN', 'providers'),
+    healthMongoParameterName: parameter('TEST_HEALTH_MONGO_PARAMETER_NAME', 'mongo-health'),
+    mongoParameterName: parameter('TEST_MONGO_PARAMETER_NAME', 'mongo'),
+    providerParameterName: parameter('TEST_PROVIDER_PARAMETER_NAME', 'providers'),
     healthRoleArn: role('TEST_HEALTH_ROLE_ARN'),
     recipesRoleArn: role('TEST_RECIPES_ROLE_ARN'),
     deploymentBucket: required('TEST_DEPLOYMENT_BUCKET', /^foodly-notes-test-[a-z0-9-]+$/),
