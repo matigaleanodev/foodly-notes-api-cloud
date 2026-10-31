@@ -3,6 +3,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 
 PARAMETERS = {
     "mongo-health": ("FOODLY_HEALTH_MONGO_JSON", ["MONGO_URI", "ORIGIN_VERIFY_SECRET"]),
@@ -45,11 +46,15 @@ def payloads(env):
 
 
 def aws(*args, request=None):
-    result = subprocess.run(
-        ["aws", *args, "--region", "us-east-1", "--output", "json", "--no-cli-pager"],
-        input=json.dumps(request) if request is not None else None,
-        text=True, capture_output=True, check=False,
-    )
+    command = ["aws", *args, "--region", "us-east-1", "--output", "json", "--no-cli-pager"]
+    if request is None:
+        result = subprocess.run(command, text=True, capture_output=True, check=False)
+    else:
+        # AWS CLI cannot reliably load cli-input-json from /dev/stdin.
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", prefix="foodly-parameters-", dir=os.environ.get("RUNNER_TEMP")) as payload:
+            json.dump(request, payload)
+            payload.flush()
+            result = subprocess.run(command + ["--cli-input-json", "file://" + payload.name], text=True, capture_output=True, check=False)
     if result.returncode:
         # CLI diagnostics can include sensitive request data. Never forward them.
         raise ValueError("AWS operation failed.")
@@ -73,7 +78,7 @@ def main(env):
     )):
         raise ValueError("Invalid AWS identity.")
     for name, raw in pending:
-        response = aws("ssm", "put-parameter", "--cli-input-json", "file:///dev/stdin", request={
+        response = aws("ssm", "put-parameter", request={
             "Name": name, "Value": raw, "Type": "SecureString", "Tier": "Standard",
             "KeyId": "alias/aws/ssm", "Overwrite": True,
         })
